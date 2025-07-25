@@ -6,11 +6,10 @@ import json from "@rollup/plugin-json";
 
 export default {
   input: "src/index.ts",
-  options: {},
   output: [
     {
       file: "dist/monoscopetech-browser.esm.js",
-      format: "es",
+      format: "esm",
       sourcemap: true,
     },
     {
