@@ -1,10 +1,8 @@
 {
   "name": "@monoscopetech/browser",
   "version": "0.1.0",
-  "main": "dist/monoscopetech-browser.cjs.js",
-  "module": "dist/monoscopetech-browser.esm.js",
-  "unpkg": "dist/monoscopetech-browser.umd.js",
-  "types": "dist/types.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
