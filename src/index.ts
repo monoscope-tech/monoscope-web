@@ -13,13 +13,6 @@ class Monoscope {
       throw new Error("MonoscopeConfig must include projectId");
     }
 
-    if (!config.replayEndpoint) {
-      config.replayEndpoint = `https://app.apitoolkit.io/p/${config.projectId}/replay`;
-    }
-    if (!config.exporterEndpoint) {
-      config.exporterEndpoint = "http://otelcol.apitoolkit.io:4318";
-    }
-
     const storedSessionId = sessionStorage.getItem("monoscope-session-id");
     if (storedSessionId) {
       this.sessionId = storedSessionId;
@@ -32,6 +25,10 @@ class Monoscope {
     this.config = config;
     this.replay = new MonoscopeReplay(config, this.sessionId);
     this.replay.configure();
+  }
+
+  getSessionId() {
+    return this.sessionId;
   }
 }
 

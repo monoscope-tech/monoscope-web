@@ -15,14 +15,18 @@ export const configureOpenTelemetry = (
   config: MonoscopeConfig,
   sessionId: string
 ) => {
-  //create a resource with service name and attributes
-  const { serviceName, resourceAttributes, instrumentations = [] } = config;
+  const {
+    serviceName,
+    resourceAttributes,
+    instrumentations = [],
+    propagateTraceHeaderCorsUrls,
+  } = config;
 
   const SESSION_ID = sessionId;
 
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: serviceName,
-    "at-project-key": config.projectId,
+    "at-project-id": config.projectId,
     ...(resourceAttributes || {}),
   });
 
@@ -41,6 +45,8 @@ export const configureOpenTelemetry = (
     propagator: new W3CTraceContextPropagator(),
   });
 
+  const headerUrls = propagateTraceHeaderCorsUrls || [/^https?:\/\/.*/];
+
   registerInstrumentations({
     tracerProvider: provider,
     instrumentations: [
@@ -53,13 +59,13 @@ export const configureOpenTelemetry = (
         },
       }),
       new XMLHttpRequestInstrumentation({
-        propagateTraceHeaderCorsUrls: [/^http:\/\/localhost:3000/],
+        propagateTraceHeaderCorsUrls: headerUrls,
         applyCustomAttributesOnSpan: (span, xhr) => {
           span.setAttribute("session.id", SESSION_ID);
         },
       }),
       new FetchInstrumentation({
-        propagateTraceHeaderCorsUrls: [/^http:\/\/localhost:3000/],
+        propagateTraceHeaderCorsUrls: headerUrls,
         applyCustomAttributesOnSpan: (span, request) => {
           span.setAttribute("session.id", SESSION_ID);
         },
