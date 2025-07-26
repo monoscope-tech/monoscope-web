@@ -56,6 +56,12 @@ export const configureOpenTelemetry = (
           documentLoad: (span) => {
             span.setAttribute("session.id", SESSION_ID);
           },
+          documentFetch: (span) => {
+            span.setAttribute("session.id", SESSION_ID);
+          },
+          resourceFetch: (span) => {
+            span.setAttribute("session.id", SESSION_ID);
+          },
         },
       }),
       new XMLHttpRequestInstrumentation({
