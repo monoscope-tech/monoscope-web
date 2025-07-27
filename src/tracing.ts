@@ -31,7 +31,8 @@ export const configureOpenTelemetry = (
   });
 
   const otlpExporter = new OTLPTraceExporter({
-    url: config.exporterEndpoint || "http://otelcol.apitoolkit.io:4318", // HTTP endpoint (note the :4318 port)
+    url:
+      config.exporterEndpoint || "http://otelcol.apitoolkit.io:4318/v1/traces",
     headers: {},
   });
 
@@ -72,6 +73,10 @@ export const configureOpenTelemetry = (
       }),
       new FetchInstrumentation({
         propagateTraceHeaderCorsUrls: headerUrls,
+        ignoreUrls: [
+          /^https?:\/\/(?:[^\/]+\.)?apitoolkit\.io\//,
+          /^https?:\/\/(?:[^\/]+\.)?monoscope\.tech\//,
+        ],
         applyCustomAttributesOnSpan: (span, request) => {
           span.setAttribute("session.id", SESSION_ID);
         },

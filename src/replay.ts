@@ -26,14 +26,15 @@ export class MonoscopeReplay {
     if (this.events.length === 0) return;
     let { replayEventsBaseUrl, projectId } = this.config;
     if (!replayEventsBaseUrl) {
-      replayEventsBaseUrl = `https://app.apitoolkit.io/p/${projectId}/rrweb`;
+      replayEventsBaseUrl = `https://app.apitoolkit.io/rrweb/${projectId}`;
     } else {
-      replayEventsBaseUrl = `${replayEventsBaseUrl}/p/${projectId}/rrweb`;
+      replayEventsBaseUrl = `${replayEventsBaseUrl}/rrweb/${projectId}`;
     }
     const events = this.events;
     this.events = [];
     const body = JSON.stringify({ events, sessionId: this.sessionId });
     fetch(replayEventsBaseUrl, {
+      mode: "no-cors",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
