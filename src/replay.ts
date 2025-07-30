@@ -11,6 +11,8 @@ export class MonoscopeReplay {
     this.save = this.save.bind(this);
     this.events = [];
     this.configure = this.configure.bind(this);
+
+    window.addEventListener("unload", () => this.save());
   }
 
   configure() {

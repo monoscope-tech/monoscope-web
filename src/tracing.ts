@@ -47,6 +47,10 @@ export const configureOpenTelemetry = (
   });
 
   const headerUrls = propagateTraceHeaderCorsUrls || [/^https?:\/\/.*/];
+  const ignoreUrls = [
+    /^https?:\/\/(?:[^\/]+\.)?apitoolkit\.io\//,
+    /^https?:\/\/(?:[^\/]+\.)?monoscope\.tech\//,
+  ];
 
   registerInstrumentations({
     tracerProvider: provider,
@@ -67,16 +71,14 @@ export const configureOpenTelemetry = (
       }),
       new XMLHttpRequestInstrumentation({
         propagateTraceHeaderCorsUrls: headerUrls,
+        ignoreUrls,
         applyCustomAttributesOnSpan: (span, xhr) => {
           span.setAttribute("session.id", SESSION_ID);
         },
       }),
       new FetchInstrumentation({
         propagateTraceHeaderCorsUrls: headerUrls,
-        ignoreUrls: [
-          /^https?:\/\/(?:[^\/]+\.)?apitoolkit\.io\//,
-          /^https?:\/\/(?:[^\/]+\.)?monoscope\.tech\//,
-        ],
+        ignoreUrls,
         applyCustomAttributesOnSpan: (span, request) => {
           span.setAttribute("session.id", SESSION_ID);
         },
