@@ -8,16 +8,6 @@ export default {
   input: "src/index.ts",
   output: [
     {
-      file: "dist/monoscopetech-browser.esm.js",
-      format: "esm",
-      sourcemap: true,
-    },
-    {
-      file: "dist/monoscopetech-browser.cjs.js",
-      format: "cjs",
-      sourcemap: true,
-    },
-    {
       file: "dist/monoscopetech-browser.umd.js",
       format: "umd",
       name: "@monoscopetech/browser",
