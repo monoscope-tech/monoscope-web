@@ -34,7 +34,11 @@ export class MonoscopeReplay {
     }
     const events = this.events;
     this.events = [];
-    const body = JSON.stringify({ events, sessionId: this.sessionId });
+    const body = JSON.stringify({
+      events,
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString(),
+    });
     fetch(replayEventsBaseUrl, {
       mode: "no-cors",
       method: "POST",
