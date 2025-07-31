@@ -1,14 +1,14 @@
 {
   "name": "@monoscopetech/browser",
-  "version": "0.3.2",
+  "version": "0.3.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "unpkg": "dis/monoscopetech-browser.umd.js",
-
   "scripts": {
     "build": "rollup -c",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "prePublishOnly": "npx tsc --build"
   },
   "dependencies": {
     "@opentelemetry/context-zone": "^2.0.1",
