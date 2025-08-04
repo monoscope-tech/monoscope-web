@@ -1,6 +1,6 @@
 {
   "name": "@monoscopetech/browser",
-  "version": "0.3.1",
+  "version": "0.4.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -24,6 +24,7 @@
     "@opentelemetry/sdk-trace-base": "^2.0.1",
     "@opentelemetry/sdk-trace-web": "^2.0.1",
     "@opentelemetry/semantic-conventions": "^1.36.0",
+    "@rrweb/rrweb-plugin-console-record": "2.0.0-alpha.18",
     "rrweb": "2.0.0-alpha.4",
     "uuid": "^11.1.0"
   },

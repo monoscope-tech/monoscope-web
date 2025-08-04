@@ -47,6 +47,9 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.36.0
         version: 1.36.0
+      '@rrweb/rrweb-plugin-console-record':
+        specifier: 2.0.0-alpha.18
+        version: 2.0.0-alpha.18(rrweb@2.0.0-alpha.4)
       rrweb:
         specifier: 2.0.0-alpha.4
         version: 2.0.0-alpha.4
@@ -403,6 +406,11 @@ packages:
     resolution: {integrity: sha512-M/fKi4sasCdM8i0aWJjCSFm2qEnYRR8AMLG2kxp6wD13+tMGA4Z1tVAuHkNRjud5SW2EM3naLuK35w9twvf6aA==}
     cpu: [x64]
     os: [win32]
+
+  '@rrweb/rrweb-plugin-console-record@2.0.0-alpha.18':
+    resolution: {integrity: sha512-R/ys7jrOXjCwcVOf3EkXtT3/XZQ+OMqy+3VhUmgrwngpvppThZlbK4a13OCECwkB8OCJ81S9oYleNbszja2IYA==}
+    peerDependencies:
+      rrweb: ^2.0.0-alpha.18
 
   '@rrweb/types@2.0.0-alpha.18':
     resolution: {integrity: sha512-iMH3amHthJZ9x3gGmBPmdfim7wLGygC2GciIkw2A6SO8giSn8PHYtRT8OKNH4V+k3SZ6RSnYHcTQxBA7pSWZ3Q==}
@@ -925,6 +933,10 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.45.1':
     optional: true
+
+  '@rrweb/rrweb-plugin-console-record@2.0.0-alpha.18(rrweb@2.0.0-alpha.4)':
+    dependencies:
+      rrweb: 2.0.0-alpha.4
 
   '@rrweb/types@2.0.0-alpha.18': {}
 

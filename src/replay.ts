@@ -1,3 +1,4 @@
+import { getRecordConsolePlugin } from "@rrweb/rrweb-plugin-console-record";
 import { MonoscopeConfig } from "./types";
 import * as rrweb from "rrweb";
 
@@ -20,6 +21,17 @@ export class MonoscopeReplay {
       emit: (event) => {
         this.events.push(event);
       },
+      plugins: [
+        getRecordConsolePlugin({
+          level: ["info", "log", "warn", "error"],
+          lengthThreshold: 10000,
+          stringifyOptions: {
+            stringLengthLimit: 1000,
+            numOfKeysLimit: 100,
+            depthOfLimit: 1,
+          },
+        }),
+      ],
     });
     setInterval(this.save, 15 * 1000);
   }
