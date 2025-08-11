@@ -1,11 +1,12 @@
 import { MonoscopeReplay } from "./replay";
-import { configureOpenTelemetry } from "./tracing";
-import { MonoscopeConfig } from "./types";
+import { OpenTelemetryManager } from "./tracing";
+import { MonoscopeConfig, MonoscopeUser } from "./types";
 import { v4 as uuidv4 } from "uuid";
 
 class Monoscope {
   replay: MonoscopeReplay;
   config: MonoscopeConfig;
+  otel: OpenTelemetryManager;
   sessionId: string;
 
   constructor(config: MonoscopeConfig) {
@@ -21,14 +22,19 @@ class Monoscope {
       sessionStorage.setItem("monoscope-session-id", this.sessionId);
     }
 
-    configureOpenTelemetry(config, this.sessionId);
     this.config = config;
     this.replay = new MonoscopeReplay(config, this.sessionId);
+    this.otel = new OpenTelemetryManager(config, this.sessionId);
+    this.otel.configure();
     this.replay.configure();
+    window.monoscope = this;
   }
 
   getSessionId() {
     return this.sessionId;
+  }
+  setUser(u: MonoscopeUser) {
+    this.otel.setUser(u);
   }
 }
 

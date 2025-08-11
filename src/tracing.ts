@@ -6,83 +6,113 @@ import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { XMLHttpRequestInstrumentation } from "@opentelemetry/instrumentation-xml-http-request";
 import { FetchInstrumentation } from "@opentelemetry/instrumentation-fetch";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import { MonoscopeConfig } from "./types";
+import { MonoscopeConfig, MonoscopeUser } from "./types";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 
-export const configureOpenTelemetry = (
-  config: MonoscopeConfig,
-  sessionId: string
-) => {
-  const {
-    serviceName,
-    resourceAttributes,
-    instrumentations = [],
-    propagateTraceHeaderCorsUrls,
-  } = config;
+export class OpenTelemetryManager {
+  private config: MonoscopeConfig;
+  private sessionId: string;
+  private provider: WebTracerProvider;
 
-  const SESSION_ID = sessionId;
+  constructor(config: MonoscopeConfig, sessionId: string) {
+    this.config = config;
+    this.sessionId = sessionId;
+    this.provider = this.createProvider();
+  }
 
-  const resource = resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: serviceName,
-    "at-project-id": config.projectId,
-    ...(resourceAttributes || {}),
-  });
+  private createProvider(): WebTracerProvider {
+    const { serviceName, resourceAttributes, exporterEndpoint, projectId } =
+      this.config;
 
-  const otlpExporter = new OTLPTraceExporter({
-    url:
-      config.exporterEndpoint || "http://otelcol.apitoolkit.io:4318/v1/traces",
-    headers: {},
-  });
+    const resource = resourceFromAttributes({
+      [ATTR_SERVICE_NAME]: serviceName,
+      "at-project-id": projectId,
+      ...(resourceAttributes || {}),
+    });
 
-  const provider = new WebTracerProvider({
-    resource: resource,
-    spanProcessors: [new BatchSpanProcessor(otlpExporter)],
-  });
+    const otlpExporter = new OTLPTraceExporter({
+      url: exporterEndpoint || "http://otelcol.apitoolkit.io:4318/v1/traces",
+      headers: {},
+    });
 
-  provider.register({
-    contextManager: new ZoneContextManager(),
-    propagator: new W3CTraceContextPropagator(),
-  });
+    return new WebTracerProvider({
+      resource,
+      spanProcessors: [new BatchSpanProcessor(otlpExporter)],
+    });
+  }
 
-  const headerUrls = propagateTraceHeaderCorsUrls || [/^https?:\/\/.*/];
-  const ignoreUrls = [
-    /^https?:\/\/(?:[^\/]+\.)?apitoolkit\.io\//,
-    /^https?:\/\/(?:[^\/]+\.)?monoscope\.tech\//,
-  ];
+  public configure(): void {
+    this.provider.register({
+      contextManager: new ZoneContextManager(),
+      propagator: new W3CTraceContextPropagator(),
+    });
 
-  registerInstrumentations({
-    tracerProvider: provider,
-    instrumentations: [
-      ...instrumentations,
-      new DocumentLoadInstrumentation({
-        applyCustomAttributesOnSpan: {
-          documentLoad: (span) => {
-            span.setAttribute("session.id", SESSION_ID);
+    const headerUrls = this.config.propagateTraceHeaderCorsUrls || [
+      /^https?:\/\/.*/,
+    ];
+    const ignoreUrls = [
+      /^https?:\/\/(?:[^\/]+\.)?apitoolkit\.io\//,
+      /^https?:\/\/(?:[^\/]+\.)?monoscope\.tech\//,
+    ];
+
+    registerInstrumentations({
+      tracerProvider: this.provider,
+      instrumentations: [
+        ...(this.config.instrumentations || []),
+        new DocumentLoadInstrumentation({
+          applyCustomAttributesOnSpan: {
+            documentLoad: (span) => {
+              span.setAttribute("session.id", this.sessionId);
+              this.setUserAttributes(span);
+            },
+            documentFetch: (span) => {
+              span.setAttribute("session.id", this.sessionId);
+              this.setUserAttributes(span);
+            },
+            resourceFetch: (span) => {
+              span.setAttribute("session.id", this.sessionId);
+              this.setUserAttributes(span);
+            },
           },
-          documentFetch: (span) => {
-            span.setAttribute("session.id", SESSION_ID);
+        }),
+        new XMLHttpRequestInstrumentation({
+          propagateTraceHeaderCorsUrls: headerUrls,
+          ignoreUrls,
+          applyCustomAttributesOnSpan: (span) => {
+            span.setAttribute("session.id", this.sessionId);
+            this.setUserAttributes(span);
           },
-          resourceFetch: (span) => {
-            span.setAttribute("session.id", SESSION_ID);
+        }),
+        new FetchInstrumentation({
+          propagateTraceHeaderCorsUrls: headerUrls,
+          ignoreUrls,
+          applyCustomAttributesOnSpan: (span) => {
+            span.setAttribute("session.id", this.sessionId);
+            this.setUserAttributes(span);
           },
-        },
-      }),
-      new XMLHttpRequestInstrumentation({
-        propagateTraceHeaderCorsUrls: headerUrls,
-        ignoreUrls,
-        applyCustomAttributesOnSpan: (span, xhr) => {
-          span.setAttribute("session.id", SESSION_ID);
-        },
-      }),
-      new FetchInstrumentation({
-        propagateTraceHeaderCorsUrls: headerUrls,
-        ignoreUrls,
-        applyCustomAttributesOnSpan: (span, request) => {
-          span.setAttribute("session.id", SESSION_ID);
-        },
-      }),
-    ],
-  });
-};
+        }),
+      ],
+    });
+  }
+
+  private setUserAttributes(span: any) {
+    if (this.config.user) {
+      for (let k in this.config.user) {
+        span.setAttribute(`user.${k}`, this.config.user[k]);
+      }
+    }
+  }
+
+  public async shutdown(): Promise<void> {
+    await this.provider.shutdown();
+  }
+
+  public setUser(newConfig: MonoscopeUser) {
+    this.config = {
+      ...this.config,
+      user: { ...this.config.user, ...newConfig },
+    };
+  }
+}

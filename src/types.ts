@@ -1,3 +1,5 @@
+import Monoscope from ".";
+
 export type MonoscopeConfig = {
   serviceName: string;
   exporterEndpoint?: string;
@@ -6,4 +8,18 @@ export type MonoscopeConfig = {
   resourceAttributes?: Record<string, string>;
   instrumentations?: any[];
   replayEventsBaseUrl?: string;
+  user?: MonoscopeUser;
 };
+
+export type MonoscopeUser = {
+  email?: string;
+  fullName?: string;
+  name?: string;
+  id?: string;
+  roles?: string[];
+} & Record<string, string>;
+declare global {
+  interface Window {
+    monoscope: Monoscope;
+  }
+}
