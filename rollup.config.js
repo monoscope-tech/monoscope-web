@@ -12,6 +12,7 @@ export default {
       format: "umd",
       name: "Monoscope",
       sourcemap: true,
+      plugins: [terser()],
     },
     {
       file: "dist/monoscope.min.js",
