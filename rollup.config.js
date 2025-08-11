@@ -8,9 +8,9 @@ export default {
   input: "src/index.ts",
   output: [
     {
-      file: "dist/monoscopetech-browser.umd.js",
-      format: "umd",
-      name: "@monoscopetech/browser",
+      file: "dist/browser.js",
+      format: "iife",
+      name: "Monoscope",
       sourcemap: true,
       plugins: [terser()],
     },

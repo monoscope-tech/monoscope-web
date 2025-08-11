@@ -4,7 +4,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
-  "unpkg": "dis/monoscopetech-browser.umd.js",
+  "unpkg": "dist/monoscopetech-browser.umd.js",
   "scripts": {
     "build": "rollup -c",
     "lint": "eslint src --ext .ts",
