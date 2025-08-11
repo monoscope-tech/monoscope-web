@@ -27,7 +27,7 @@ class Monoscope {
     this.otel = new OpenTelemetryManager(config, this.sessionId);
     this.otel.configure();
     this.replay.configure();
-    window.monoscope = this;
+     
   }
 
   getSessionId() {
@@ -37,5 +37,7 @@ class Monoscope {
     this.otel.setUser(u);
   }
 }
+
+ 
 
 export default Monoscope;

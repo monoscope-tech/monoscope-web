@@ -8,7 +8,13 @@ export default {
   input: "src/index.ts",
   output: [
     {
-      file: "dist/browser.js",
+      file: "dist/monoscope.umd.js",
+      format: "umd",
+      name: "Monoscope",
+      sourcemap: true,
+    },
+    {
+      file: "dist/monoscope.min.js",
       format: "iife",
       name: "Monoscope",
       sourcemap: true,
@@ -17,7 +23,7 @@ export default {
   ],
   plugins: [
     json(),
-    resolve(),
+    resolve({ browser: true }),
     commonjs(),
     typescript({
       tsconfig: "./tsconfig.json",

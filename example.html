@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Monoscope Test</title>
+</head>
+<body>
+  <h1>Monoscope Test</h1>
+  <script src="dist/monoscope.min.js"></script>
+  <script>
+      const monoscope = new Monoscope({ projectId: 'YOUR_PROJECT_ID' });
+      console.log('Monoscope initialized successfully:', monoscope);
+      console.log('Session ID:', monoscope.getSessionId());
+  </script>
+</body>
+</html>
