@@ -13,7 +13,7 @@ export type MonoscopeConfig = {
 
 export type MonoscopeUser = {
   email?: string;
-  fullName?: string;
+  full_name?: string;
   name?: string;
   id?: string;
   roles?: string[];
