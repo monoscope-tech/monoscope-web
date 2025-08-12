@@ -1,12 +1,20 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <script type="module" src="dist/browser.js"></script>
+    <title>Monoscope Web SDK Example</title>
+    <script src="dist/monoscope.umd.js"></script>
   </head>
 
   <body>
-<script>
-  console.log(Monoscope)
-</script>
+    <h1>Monoscope Web SDK Example</h1>
+    <p>Open the developer console to see the logs.</p>
+    <script>
+      const monoscope = new Monoscope.default({
+        projectId: 'YOUR_PROJECT_ID',
+        serviceName: 'my-web-app',
+      });
+      console.log('Monoscope SDK initialized');
+      console.log('Session ID:', monoscope.getSessionId());
+    </script>
   </body>
 </html>
