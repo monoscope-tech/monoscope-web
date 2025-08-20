@@ -33,7 +33,7 @@ export class OpenTelemetryManager {
     });
 
     const otlpExporter = new OTLPTraceExporter({
-      url: exporterEndpoint || "http://otelcol.apitoolkit.io:4318/v1/traces",
+      url: exporterEndpoint || "https://otelcol.s.past3.tech/v1/traces",
       headers: {},
     });
 
