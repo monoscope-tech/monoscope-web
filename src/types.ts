@@ -8,6 +8,7 @@ export type MonoscopeConfig = {
   resourceAttributes?: Record<string, string>;
   instrumentations?: any[];
   replayEventsBaseUrl?: string;
+  enableNetworkEvents?: boolean;
   user?: MonoscopeUser;
 };
 

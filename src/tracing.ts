@@ -62,16 +62,9 @@ export class OpenTelemetryManager {
       instrumentations: [
         ...(this.config.instrumentations || []),
         new DocumentLoadInstrumentation({
+          ignoreNetworkEvents: !this.config.enableNetworkEvents,
           applyCustomAttributesOnSpan: {
             documentLoad: (span) => {
-              span.setAttribute("session.id", this.sessionId);
-              this.setUserAttributes(span);
-            },
-            documentFetch: (span) => {
-              span.setAttribute("session.id", this.sessionId);
-              this.setUserAttributes(span);
-            },
-            resourceFetch: (span) => {
               span.setAttribute("session.id", this.sessionId);
               this.setUserAttributes(span);
             },
