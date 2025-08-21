@@ -7,9 +7,9 @@
   "unpkg": "dist/monoscope.umd.js",
   "browser": "dist/monoscope.umd.js",
   "scripts": {
-    "build": "rollup -c",
+    "build": "npx tsc --build && rollup -c",
     "lint": "eslint src --ext .ts",
-    "prePublishOnly": "npx tsc --build"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@opentelemetry/context-zone": "^2.0.1",
