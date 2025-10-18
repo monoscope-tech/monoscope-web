@@ -2,76 +2,246 @@ import { getRecordConsolePlugin } from "@rrweb/rrweb-plugin-console-record";
 import { MonoscopeConfig } from "./types";
 import * as rrweb from "rrweb";
 
-const MAX_EVENT_BATCH = 5;
+const MAX_EVENT_BATCH = 50;
+const SAVE_INTERVAL = 10000;
+const MAX_RETRY_EVENTS = 1000;
+
 export class MonoscopeReplay {
-  events: any[] = [];
-  config: MonoscopeConfig;
-  sessionId: string;
+  private events: any[] = [];
+  private config: MonoscopeConfig;
+  private sessionId: string;
+  private stopRecording: (() => void) | undefined = undefined;
+  private saveInterval: NodeJS.Timeout | null = null;
+  private isSaving: boolean = false;
+  private isConfigured: boolean = false;
+
   constructor(config: MonoscopeConfig, sessionId: string) {
     this.sessionId = sessionId;
     this.config = config;
-    this.save = this.save.bind(this);
     this.events = [];
-    this.configure = this.configure.bind(this);
 
-    window.addEventListener("unload", () => this.save());
+    // Bind methods
+    this.save = this.save.bind(this);
+    this.configure = this.configure.bind(this);
+    this.handleUnload = this.handleUnload.bind(this);
+    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+
+    // Setup event listeners
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners() {
+    window.addEventListener("beforeunload", this.handleUnload);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    window.addEventListener("pagehide", this.handleUnload);
+  }
+
+  private handleUnload() {
+    this.save(true); // Force synchronous save on unload
+  }
+
+  private handleVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+      this.save();
+    }
   }
 
   configure() {
-    rrweb.record({
-      emit: (event) => {
-        this.events.push(event);
-        if (this.events.length >= MAX_EVENT_BATCH) {
-          this.save();
-        }
-      },
-      checkoutEveryNms: 10 * 1000,
-      checkoutEveryNth: 10,
-      sampling: {
-        mouseInteraction: false,
-        scroll: 150,
-        media: 800,
-        input: "last",
-      },
-      plugins: [
-        getRecordConsolePlugin({
-          level: ["info", "log", "warn", "error"],
-          lengthThreshold: 10000,
-          stringifyOptions: {
-            stringLengthLimit: 1000,
-            numOfKeysLimit: 100,
-            depthOfLimit: 1,
+    if (this.isConfigured) {
+      console.warn("MonoscopeReplay already configured");
+      return;
+    }
+
+    try {
+      this.stopRecording = rrweb.record({
+        emit: (event) => {
+          // Don't record if we're in a weird state
+          if (!event || typeof event !== "object") {
+            console.warn("Invalid event received:", event);
+            return;
+          }
+
+          this.events.push(event);
+
+          // Auto-save when batch size reached
+          if (this.events.length >= MAX_EVENT_BATCH) {
+            this.save();
+          }
+        },
+
+        // Prevent recording replay UI elements
+        blockClass: "rr-block",
+        blockSelector: "#replay-container, .replay-ui, [data-rrweb-ignore]",
+
+        // Privacy settings
+        maskAllInputs: true,
+        maskInputOptions: {
+          password: true,
+          email: true,
+          tel: true,
+        },
+        maskTextClass: "rr-mask",
+
+        // Performance settings
+        checkoutEveryNms: 15 * 1000, // Full snapshot every 15s
+        sampling: {
+          mouseInteraction: {
+            MouseUp: false,
+            MouseDown: false,
+            Click: true,
+            ContextMenu: false,
+            DblClick: true,
+            Focus: false,
+            Blur: false,
+            TouchStart: true,
+            TouchEnd: false,
           },
-        }),
-      ],
-    });
-    setInterval(this.save, 5 * 1000);
+          mousemove: true,
+          scroll: 150, // Throttle scroll events
+          media: 800,
+          input: "last", // Only capture final input value
+        },
+
+        // Console plugin
+        plugins: [
+          getRecordConsolePlugin({
+            level: ["info", "log", "warn", "error"],
+            lengthThreshold: 10000,
+            stringifyOptions: {
+              stringLengthLimit: 1000,
+              numOfKeysLimit: 100,
+              depthOfLimit: 2, // Increased from 1 for better context
+            },
+          }),
+        ],
+      });
+
+      // Setup periodic save
+      this.saveInterval = setInterval(() => {
+        this.save();
+      }, SAVE_INTERVAL);
+
+      this.isConfigured = true;
+      console.log("MonoscopeReplay configured successfully");
+    } catch (error) {
+      console.error("Failed to configure MonoscopeReplay:", error);
+      throw error;
+    }
   }
 
-  save() {
-    if (this.events.length === 0) return;
-    let { replayEventsBaseUrl, projectId } = this.config;
-    if (!replayEventsBaseUrl) {
-      replayEventsBaseUrl = `https://app.apitoolkit.io/rrweb/${projectId}`;
-    } else {
-      replayEventsBaseUrl = `${replayEventsBaseUrl}/rrweb/${projectId}`;
+  async save(forceSynchronous: boolean = false) {
+    // Prevent concurrent saves
+    if (this.isSaving && !forceSynchronous) {
+      return;
     }
-    const events = this.events;
+
+    // Nothing to save
+    if (this.events.length === 0) {
+      return;
+    }
+
+    // Prevent event array from growing too large during failed saves
+    if (this.events.length > MAX_RETRY_EVENTS) {
+      console.warn(
+        `Event queue exceeded ${MAX_RETRY_EVENTS}, dropping oldest events`
+      );
+      this.events = this.events.slice(-MAX_RETRY_EVENTS);
+    }
+
+    this.isSaving = true;
+
+    const { replayEventsBaseUrl, projectId } = this.config;
+
+    // Construct base URL
+    let baseUrl = replayEventsBaseUrl || "https://app.monoscope.tech";
+    baseUrl = `${baseUrl}/rrweb/${projectId}`;
+
+    // Get events to send and clear buffer
+    const eventsToSend = [...this.events];
     this.events = [];
-    const body = JSON.stringify({
-      events,
+
+    const payload = {
+      events: eventsToSend,
       sessionId: this.sessionId,
       timestamp: new Date().toISOString(),
-    });
-    fetch(replayEventsBaseUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body,
-    }).catch((error) => {
+      eventCount: eventsToSend.length,
+    };
+
+    try {
+      if (forceSynchronous && navigator.sendBeacon) {
+        // Use sendBeacon for unload events (more reliable)
+        const blob = new Blob([JSON.stringify(payload)], {
+          type: "application/json",
+        });
+        const sent = navigator.sendBeacon(baseUrl, blob);
+
+        if (!sent) {
+          console.warn("sendBeacon failed, events may be lost");
+        }
+      } else {
+        // Regular fetch with keepalive
+        const response = await fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          keepalive: true, // Important for unload scenarios
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to save replay events: ${response.status} ${response.statusText}`
+          );
+        }
+        console.log(`Successfully saved ${eventsToSend.length} replay events`);
+      }
+    } catch (error) {
       console.error("Failed to save replay events:", error);
-      this.events = [...events, ...this.events];
-    });
+      this.events = [...eventsToSend, ...this.events];
+      if (this.events.length > MAX_RETRY_EVENTS) {
+        this.events = this.events.slice(-MAX_RETRY_EVENTS);
+      }
+    } finally {
+      this.isSaving = false;
+    }
+  }
+
+  /**
+   * Stop recording and clean up
+   */
+  stop() {
+    this.save(true);
+    if (this.stopRecording) {
+      this.stopRecording();
+      this.stopRecording = undefined;
+    }
+
+    if (this.saveInterval) {
+      clearInterval(this.saveInterval);
+      this.saveInterval = null;
+    }
+
+    window.removeEventListener("beforeunload", this.handleUnload);
+    window.removeEventListener("pagehide", this.handleUnload);
+    document.removeEventListener(
+      "visibilitychange",
+      this.handleVisibilityChange
+    );
+
+    this.isConfigured = false;
+    console.log("MonoscopeReplay stopped");
+  }
+
+  getEventCount(): number {
+    return this.events.length;
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  isRecording(): boolean {
+    return this.isConfigured && this.stopRecording !== null;
   }
 }
