@@ -55,25 +55,15 @@ export class MonoscopeReplay {
     try {
       this.stopRecording = rrweb.record({
         emit: (event) => {
-          // Don't record if we're in a weird state
-          if (!event || typeof event !== "object") {
-            console.warn("Invalid event received:", event);
-            return;
-          }
-
           this.events.push(event);
-
           // Auto-save when batch size reached
           if (this.events.length >= MAX_EVENT_BATCH) {
             this.save();
           }
         },
 
-        // Prevent recording replay UI elements
         blockClass: "rr-block",
-        blockSelector: "#replay-container, .replay-ui, [data-rrweb-ignore]",
 
-        // Privacy settings
         maskAllInputs: true,
         maskInputOptions: {
           password: true,
@@ -102,7 +92,6 @@ export class MonoscopeReplay {
           input: "last", // Only capture final input value
         },
 
-        // Console plugin
         plugins: [
           getRecordConsolePlugin({
             level: ["info", "log", "warn", "error"],
@@ -116,7 +105,6 @@ export class MonoscopeReplay {
         ],
       });
 
-      // Setup periodic save
       this.saveInterval = setInterval(() => {
         this.save();
       }, SAVE_INTERVAL);
@@ -130,17 +118,12 @@ export class MonoscopeReplay {
   }
 
   async save(forceSynchronous: boolean = false) {
-    // Prevent concurrent saves
     if (this.isSaving && !forceSynchronous) {
       return;
     }
-
-    // Nothing to save
     if (this.events.length === 0) {
       return;
     }
-
-    // Prevent event array from growing too large during failed saves
     if (this.events.length > MAX_RETRY_EVENTS) {
       console.warn(
         `Event queue exceeded ${MAX_RETRY_EVENTS}, dropping oldest events`
@@ -169,7 +152,6 @@ export class MonoscopeReplay {
 
     try {
       if (forceSynchronous && navigator.sendBeacon) {
-        // Use sendBeacon for unload events (more reliable)
         const blob = new Blob([JSON.stringify(payload)], {
           type: "application/json",
         });
@@ -186,7 +168,7 @@ export class MonoscopeReplay {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
-          keepalive: true, // Important for unload scenarios
+          keepalive: true,
         });
 
         if (!response.ok) {
@@ -206,10 +188,6 @@ export class MonoscopeReplay {
       this.isSaving = false;
     }
   }
-
-  /**
-   * Stop recording and clean up
-   */
   stop() {
     this.save(true);
     if (this.stopRecording) {
