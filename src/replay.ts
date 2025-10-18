@@ -33,7 +33,7 @@ export class MonoscopeReplay {
         }),
       ],
     });
-    setInterval(this.save, 15 * 1000);
+    setInterval(this.save, 5 * 1000);
   }
 
   save() {
@@ -52,7 +52,6 @@ export class MonoscopeReplay {
       timestamp: new Date().toISOString(),
     });
     fetch(replayEventsBaseUrl, {
-      mode: "no-cors",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
