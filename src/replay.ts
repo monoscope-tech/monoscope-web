@@ -2,6 +2,7 @@ import { getRecordConsolePlugin } from "@rrweb/rrweb-plugin-console-record";
 import { MonoscopeConfig } from "./types";
 import * as rrweb from "rrweb";
 
+const MAX_EVENT_BATCH = 5;
 export class MonoscopeReplay {
   events: any[] = [];
   config: MonoscopeConfig;
@@ -20,6 +21,17 @@ export class MonoscopeReplay {
     rrweb.record({
       emit: (event) => {
         this.events.push(event);
+        if (this.events.length >= MAX_EVENT_BATCH) {
+          this.save();
+        }
+      },
+      checkoutEveryNms: 10 * 1000,
+      checkoutEveryNth: 10,
+      sampling: {
+        mouseInteraction: false,
+        scroll: 150,
+        media: 800,
+        input: "last",
       },
       plugins: [
         getRecordConsolePlugin({
