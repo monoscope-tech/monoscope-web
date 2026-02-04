@@ -126,9 +126,16 @@ export class MonoscopeReplay {
     }
     if (this.events.length > MAX_RETRY_EVENTS) {
       console.warn(
-        `Event queue exceeded ${MAX_RETRY_EVENTS}, dropping oldest events`
+        `Event queue exceeded ${MAX_RETRY_EVENTS}, dropping middle events (preserving snapshots)`,
       );
-      this.events = this.events.slice(-MAX_RETRY_EVENTS);
+      // Find full snapshot events (type 2) - these are critical for replay
+      const fullSnapshots = this.events.filter((e) => e.type === 2);
+      const otherEvents = this.events.filter((e) => e.type !== 2);
+      // Keep all snapshots and the most recent other events
+      const remainingSlots = MAX_RETRY_EVENTS - fullSnapshots.length;
+      this.events = [...fullSnapshots, ...otherEvents.slice(-remainingSlots)];
+      // Re-sort by timestamp to maintain order
+      this.events.sort((a, b) => a.timestamp - b.timestamp);
     }
 
     this.isSaving = true;
@@ -173,7 +180,7 @@ export class MonoscopeReplay {
 
         if (!response.ok) {
           throw new Error(
-            `Failed to save replay events: ${response.status} ${response.statusText}`
+            `Failed to save replay events: ${response.status} ${response.statusText}`,
           );
         }
         console.log(`Successfully saved ${eventsToSend.length} replay events`);
@@ -182,7 +189,12 @@ export class MonoscopeReplay {
       console.error("Failed to save replay events:", error);
       this.events = [...eventsToSend, ...this.events];
       if (this.events.length > MAX_RETRY_EVENTS) {
-        this.events = this.events.slice(-MAX_RETRY_EVENTS);
+        // Preserve full snapshots when trimming
+        const fullSnapshots = this.events.filter((e) => e.type === 2);
+        const otherEvents = this.events.filter((e) => e.type !== 2);
+        const remainingSlots = MAX_RETRY_EVENTS - fullSnapshots.length;
+        this.events = [...fullSnapshots, ...otherEvents.slice(-remainingSlots)];
+        this.events.sort((a, b) => a.timestamp - b.timestamp);
       }
     } finally {
       this.isSaving = false;
@@ -204,7 +216,7 @@ export class MonoscopeReplay {
     window.removeEventListener("pagehide", this.handleUnload);
     document.removeEventListener(
       "visibilitychange",
-      this.handleVisibilityChange
+      this.handleVisibilityChange,
     );
 
     this.isConfigured = false;
