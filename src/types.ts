@@ -10,6 +10,7 @@ export type MonoscopeConfig = {
   replayEventsBaseUrl?: string;
   enableNetworkEvents?: boolean;
   user?: MonoscopeUser;
+  debug?: boolean;
 };
 
 export type MonoscopeUser = {

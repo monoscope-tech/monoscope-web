@@ -110,7 +110,9 @@ export class MonoscopeReplay {
       }, SAVE_INTERVAL);
 
       this.isConfigured = true;
-      console.log("MonoscopeReplay configured successfully");
+      if (this.config.debug) {
+        console.log("MonoscopeReplay configured successfully");
+      }
     } catch (error) {
       console.error("Failed to configure MonoscopeReplay:", error);
       throw error;
@@ -125,9 +127,11 @@ export class MonoscopeReplay {
       return;
     }
     if (this.events.length > MAX_RETRY_EVENTS) {
-      console.warn(
-        `Event queue exceeded ${MAX_RETRY_EVENTS}, dropping middle events (preserving snapshots)`,
-      );
+      if (this.config.debug) {
+        console.warn(
+          `Event queue exceeded ${MAX_RETRY_EVENTS}, dropping middle events (preserving snapshots)`,
+        );
+      }
       // Find full snapshot events (type 2) - these are critical for replay
       const fullSnapshots = this.events.filter((e) => e.type === 2);
       const otherEvents = this.events.filter((e) => e.type !== 2);
@@ -185,7 +189,11 @@ export class MonoscopeReplay {
             `Failed to save replay events: ${response.status} ${response.statusText}`,
           );
         }
-        console.log(`Successfully saved ${eventsToSend.length} replay events`);
+        if (this.config.debug) {
+          console.log(
+            `Successfully saved ${eventsToSend.length} replay events`,
+          );
+        }
       }
     } catch (error) {
       console.error("Failed to save replay events:", error);
@@ -222,7 +230,9 @@ export class MonoscopeReplay {
     );
 
     this.isConfigured = false;
-    console.log("MonoscopeReplay stopped");
+    if (this.config.debug) {
+      console.log("MonoscopeReplay stopped");
+    }
   }
 
   getEventCount(): number {
