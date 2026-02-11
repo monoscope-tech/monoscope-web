@@ -3,8 +3,8 @@ import { MonoscopeConfig } from "./types";
 import * as rrweb from "rrweb";
 
 const MAX_EVENT_BATCH = 50;
-const SAVE_INTERVAL = 10000;
-const MAX_RETRY_EVENTS = 1000;
+const SAVE_INTERVAL = 2000;
+const MAX_RETRY_EVENTS = 5000;
 
 export class MonoscopeReplay {
   private events: any[] = [];
@@ -168,14 +168,16 @@ export class MonoscopeReplay {
           console.warn("sendBeacon failed, events may be lost");
         }
       } else {
-        // Regular fetch with keepalive
+        // Use keepalive so the request survives page navigation,
+        // but only when payload fits under the 64KB keepalive limit
+        const body = JSON.stringify(payload);
         const response = await fetch(baseUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(payload),
-          keepalive: true,
+          body,
+          keepalive: body.length < 63000,
         });
 
         if (!response.ok) {
