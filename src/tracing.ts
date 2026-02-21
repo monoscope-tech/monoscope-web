@@ -14,11 +14,13 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 export class OpenTelemetryManager {
   private config: MonoscopeConfig;
   private sessionId: string;
+  private tabId: string;
   private provider: WebTracerProvider;
 
-  constructor(config: MonoscopeConfig, sessionId: string) {
+  constructor(config: MonoscopeConfig, sessionId: string, tabId: string) {
     this.config = config;
     this.sessionId = sessionId;
+    this.tabId = tabId;
     this.provider = this.createProvider();
   }
 
@@ -66,6 +68,7 @@ export class OpenTelemetryManager {
           applyCustomAttributesOnSpan: {
             documentLoad: (span) => {
               span.setAttribute("session.id", this.sessionId);
+              span.setAttribute("tab.id", this.tabId);
               this.setUserAttributes(span);
             },
           },
@@ -75,6 +78,7 @@ export class OpenTelemetryManager {
           ignoreUrls,
           applyCustomAttributesOnSpan: (span) => {
             span.setAttribute("session.id", this.sessionId);
+            span.setAttribute("tab.id", this.tabId);
             this.setUserAttributes(span);
           },
         }),
@@ -83,6 +87,7 @@ export class OpenTelemetryManager {
           ignoreUrls,
           applyCustomAttributesOnSpan: (span) => {
             span.setAttribute("session.id", this.sessionId);
+            span.setAttribute("tab.id", this.tabId);
             this.setUserAttributes(span);
           },
         }),
@@ -96,6 +101,10 @@ export class OpenTelemetryManager {
         span.setAttribute(`user.${k}`, this.config.user[k]);
       }
     }
+  }
+
+  public updateSessionId(sessionId: string) {
+    this.sessionId = sessionId;
   }
 
   public async shutdown(): Promise<void> {

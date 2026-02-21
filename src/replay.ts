@@ -10,13 +10,15 @@ export class MonoscopeReplay {
   private events: any[] = [];
   private config: MonoscopeConfig;
   private sessionId: string;
+  private tabId: string;
   private stopRecording: (() => void) | undefined = undefined;
   private saveInterval: NodeJS.Timeout | null = null;
   private isSaving: boolean = false;
   private isConfigured: boolean = false;
 
-  constructor(config: MonoscopeConfig, sessionId: string) {
+  constructor(config: MonoscopeConfig, sessionId: string, tabId: string) {
     this.sessionId = sessionId;
+    this.tabId = tabId;
     this.config = config;
     this.events = [];
 
@@ -157,6 +159,7 @@ export class MonoscopeReplay {
     const payload = {
       events: eventsToSend,
       sessionId: this.sessionId,
+      tabId: this.tabId,
       timestamp: new Date().toISOString(),
       eventCount: eventsToSend.length,
     };
@@ -237,6 +240,10 @@ export class MonoscopeReplay {
 
   getEventCount(): number {
     return this.events.length;
+  }
+
+  updateSessionId(sessionId: string) {
+    this.sessionId = sessionId;
   }
 
   getSessionId(): string {
