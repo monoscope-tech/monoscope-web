@@ -27,6 +27,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Test output
+test-results/
+
 # IDEs and editors
 .vscode/
 .idea/
