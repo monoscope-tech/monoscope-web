@@ -6,12 +6,27 @@
   "type": "module",
   "unpkg": "dist/monoscope.umd.js",
   "browser": "dist/monoscope.umd.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "default": "./dist/react.js"
+    }
+  },
   "scripts": {
     "build": "npx tsc --build && rollup -c",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
     "lint": "eslint src --ext .ts",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/context-zone": "^2.0.1",
     "@opentelemetry/core": "^2.0.1",
     "@opentelemetry/exporter-logs-otlp-http": "^0.203.0",
@@ -27,7 +42,7 @@
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "@rrweb/rrweb-plugin-console-record": "2.0.0-alpha.18",
     "rrweb": "2.0.0-alpha.4",
-    "uuid": "^11.1.0"
+    "web-vitals": "^4.2.0"
   },
   "files": [
     "dist"
@@ -38,16 +53,29 @@
   "keywords": [],
   "author": "",
   "license": "MIT",
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.0.0",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^11.0.0",
-    "@types/uuid": "^10.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.0.0",
     "buffer": "^5.5.0||^6.0.0",
+    "jsdom": "^29.0.1",
     "rollup": "^4.0.0",
     "tslib": "^2.8.1",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.1"
   }
 }

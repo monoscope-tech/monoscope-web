@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Monoscope Vanilla Example</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; }
+    button { margin: 0.25rem; padding: 0.5rem 1rem; cursor: pointer; }
+    #log { background: #111; color: #0f0; padding: 1rem; font-family: monospace; font-size: 13px; height: 300px; overflow-y: auto; white-space: pre-wrap; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Monoscope Vanilla JS Example</h1>
+  <div>
+    <button onclick="recordClick()">Record Event</button>
+    <button onclick="setUser()">Set User</button>
+    <button onclick="customSpan()">Custom Span</button>
+    <button onclick="throwError()">Throw Error</button>
+    <button onclick="instance.disable()">Disable</button>
+    <button onclick="instance.enable()">Enable</button>
+  </div>
+  <h3>Debug Log</h3>
+  <div id="log"></div>
+
+  <script type="module">
+    import Monoscope from "../../dist/index.js";
+
+    const logEl = document.getElementById("log");
+    const origLog = console.log;
+    const origWarn = console.warn;
+    function appendLog(msg) {
+      logEl.textContent += new Date().toISOString().slice(11, 23) + " " + msg + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    console.log = (...args) => { origLog(...args); appendLog(args.join(" ")); };
+    console.warn = (...args) => { origWarn(...args); appendLog("[warn] " + args.join(" ")); };
+
+    const instance = new Monoscope({
+      projectId: "demo-project",
+      serviceName: "vanilla-example",
+      debug: true,
+    });
+    window.instance = instance;
+
+    appendLog("Monoscope initialized. Session: " + instance.getSessionId());
+    appendLog("Tab: " + instance.getTabId());
+
+    window.recordClick = () => {
+      instance.recordEvent("button_click", { "button.name": "demo", "timestamp": Date.now() });
+      appendLog("Recorded event: button_click");
+    };
+    window.setUser = () => {
+      instance.setUser({ id: "user-42", email: "demo@example.com", name: "Demo User" });
+      appendLog("Set user: user-42");
+    };
+    window.customSpan = () => {
+      instance.startSpan("custom-operation", (span) => {
+        span.setAttribute("example", true);
+        appendLog("Custom span executed");
+      });
+    };
+    window.throwError = () => { throw new Error("Test error from vanilla example"); };
+  </script>
+</body>
+</html>

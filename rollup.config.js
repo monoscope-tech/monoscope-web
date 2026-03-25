@@ -12,6 +12,7 @@ export default {
       format: "umd",
       name: "Monoscope",
       sourcemap: true,
+      inlineDynamicImports: true,
       plugins: [terser()],
     },
     {
@@ -19,6 +20,7 @@ export default {
       format: "iife",
       name: "Monoscope",
       sourcemap: true,
+      inlineDynamicImports: true,
       plugins: [terser()],
     },
   ],
