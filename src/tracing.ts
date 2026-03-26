@@ -5,6 +5,7 @@ import { ZoneContextManager } from "@opentelemetry/context-zone";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { XMLHttpRequestInstrumentation } from "@opentelemetry/instrumentation-xml-http-request";
 import { FetchInstrumentation } from "@opentelemetry/instrumentation-fetch";
+import { UserInteractionInstrumentation } from "@opentelemetry/instrumentation-user-interaction";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { MonoscopeConfig, MonoscopeUser } from "./types";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -108,6 +109,7 @@ export class OpenTelemetryManager {
         new FetchInstrumentation({
           propagateTraceHeaderCorsUrls: headerUrls, ignoreUrls, applyCustomAttributesOnSpan: addAttrs,
         }),
+        ...(this.config.enableUserInteraction ? [new UserInteractionInstrumentation()] : []),
       ],
     });
 

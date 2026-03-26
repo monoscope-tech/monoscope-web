@@ -71,6 +71,7 @@ The `Monoscope` constructor accepts the following options:
 | `replaySampleRate` | `number` | Replay sampling rate from `0` to `1`. Default `1` (100%). |
 | `enabled` | `boolean` | Whether to start collecting data immediately. Default `true`. |
 | `resourceTimingThresholdMs` | `number` | Minimum resource duration (ms) to report. Default `200`. |
+| `enableUserInteraction` | `boolean` | Trace user clicks and interactions, linking them to downstream network calls. Default `false`. |
 
 ---
 
@@ -195,6 +196,76 @@ function MyApp() {
 | `useMonoscope()` | Returns the `Monoscope` instance (or `null` during SSR). |
 | `useMonoscopeUser(user)` | Calls `setUser` reactively when the user object changes. |
 | `MonoscopeErrorBoundary` | Error boundary that reports caught errors to Monoscope. Accepts `fallback` prop. |
+
+---
+
+## Custom Instrumentation
+
+### Custom Spans
+
+Use `startSpan()` to instrument specific operations with timing and attributes. It supports both sync and async functions — the span is automatically ended when the function returns or the promise resolves.
+
+```javascript
+// Sync
+monoscope.startSpan("parse-config", (span) => {
+  span.setAttribute("config.size", rawConfig.length);
+  return parseConfig(rawConfig);
+});
+
+// Async
+const data = await monoscope.startSpan("fetch-dashboard", async (span) => {
+  span.setAttribute("dashboard.id", dashboardId);
+  const res = await fetch(`/api/dashboards/${dashboardId}`);
+  span.setAttribute("http.status", res.status);
+  return res.json();
+});
+```
+
+### Custom Events
+
+Use `recordEvent()` to track discrete events without wrapping a code block:
+
+```javascript
+monoscope.recordEvent("feature_flag_evaluated", {
+  "flag.name": "new-checkout",
+  "flag.value": true,
+});
+```
+
+### React Components
+
+Use the `useMonoscope()` hook to instrument React components:
+
+```tsx
+import { useMonoscope } from "@monoscopetech/browser/react";
+
+function CheckoutButton() {
+  const monoscope = useMonoscope();
+
+  const handleClick = () => {
+    monoscope?.startSpan("checkout.submit", async (span) => {
+      span.setAttribute("cart.items", cartItems.length);
+      await submitOrder();
+    });
+  };
+
+  return <button onClick={handleClick}>Checkout</button>;
+}
+```
+
+### Additional OpenTelemetry Instrumentations
+
+Pass extra OTel instrumentations via the `instrumentations` config to extend tracing beyond the built-in set:
+
+```javascript
+import { LongTaskInstrumentation } from "@opentelemetry/instrumentation-long-task";
+
+const monoscope = new Monoscope({
+  projectId: "YOUR_PROJECT_ID",
+  serviceName: "my-app",
+  instrumentations: [new LongTaskInstrumentation()],
+});
+```
 
 ---
 

@@ -15,6 +15,7 @@ export type MonoscopeConfig = {
   replaySampleRate?: number; // 0-1, applies to replay
   enabled?: boolean; // default true
   resourceTimingThresholdMs?: number; // min duration to report (default 200)
+  enableUserInteraction?: boolean; // trace user clicks/interactions (default false)
 };
 
 export type MonoscopeUser = {
