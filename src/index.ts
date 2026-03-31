@@ -26,7 +26,10 @@ class Monoscope {
 
   constructor(config: MonoscopeConfig) {
     if (!config.projectId) throw new Error("MonoscopeConfig must include projectId");
-    if (!config.serviceName) throw new Error("MonoscopeConfig must include serviceName");
+
+    const isLocalhost = isBrowser && (location.hostname === "localhost" || location.hostname === "127.0.0.1");
+    if (config.debug === undefined && isLocalhost) config = { ...config, debug: true };
+    if (!config.serviceName) config = { ...config, serviceName: isBrowser ? location.hostname : "unknown" };
 
     this.config = config;
     this._enabled = config.enabled !== false;
@@ -52,7 +55,27 @@ class Monoscope {
       this.router.start();
     }
 
+    if (this._enabled && this.config.debug) this.logInitBanner();
     if (isBrowser) this.setupActivityTracking();
+  }
+
+  private logInitBanner() {
+    const c = this.config;
+    const endpoint = c.exporterEndpoint || "https://otelcol.apitoolkit.io/v1/traces";
+    const samplePct = Math.round((c.sampleRate ?? 1) * 100);
+    const replayPct = Math.round((c.replaySampleRate ?? 1) * 100);
+    console.groupCollapsed(
+      "%c[Monoscope] ✓ Initialized",
+      "color: #22c55e; font-weight: bold",
+    );
+    console.log(`  Project:   ${c.projectId}`);
+    console.log(`  Service:   ${c.serviceName}`);
+    console.log(`  Session:   ${this.sessionId}`);
+    console.log(`  Tracing:   ✓ (sample rate: ${samplePct}%)`);
+    console.log(`  Replay:    ✓ (sample rate: ${replayPct}%)`);
+    console.log(`  Errors:    ✓`);
+    console.log(`  Endpoint:  ${endpoint}`);
+    console.groupEnd();
   }
 
   private resolveSessionId(): string {

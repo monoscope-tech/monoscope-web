@@ -1,7 +1,7 @@
 import Monoscope from ".";
 
 export type MonoscopeConfig = {
-  serviceName: string;
+  serviceName?: string;
   exporterEndpoint?: string;
   propagateTraceHeaderCorsUrls?: RegExp[];
   projectId: string;

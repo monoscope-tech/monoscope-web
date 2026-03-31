@@ -7,7 +7,13 @@ import type { MonoscopeConfig, MonoscopeUser } from "./types";
 
 const MonoscopeContext = createContext<Monoscope | null>(null);
 
-export function MonoscopeProvider({ config, children }: { config: MonoscopeConfig; children: ReactNode }) {
+type ProviderProps = { children: ReactNode } & (
+  | { config: MonoscopeConfig }
+  | ({ config?: undefined } & MonoscopeConfig)
+);
+
+export function MonoscopeProvider({ children, ...rest }: ProviderProps) {
+  const config: MonoscopeConfig = rest.config ?? rest as MonoscopeConfig;
   const ref = useRef<Monoscope | null>(null);
   if (!ref.current && typeof window !== "undefined") {
     ref.current = new Monoscope(config);

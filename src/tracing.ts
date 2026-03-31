@@ -24,6 +24,7 @@ export class OpenTelemetryManager {
   private resourceObserver: PerformanceObserver | null = null;
   private _enabled: boolean = true;
   private _configured: boolean = false;
+  private _firstExportLogged: boolean = false;
   private pageSpan: Span | null = null;
   private pageContext: ReturnType<typeof context.active> | null = null;
   private endPageSpanHandler: (() => void) | null = null;
@@ -37,16 +38,35 @@ export class OpenTelemetryManager {
 
   private createProvider(): WebTracerProvider {
     const { serviceName, resourceAttributes = {}, exporterEndpoint, projectId } = this.config;
+    const exporter = new OTLPTraceExporter({
+      url: exporterEndpoint || "https://otelcol.apitoolkit.io/v1/traces",
+      headers: {},
+    });
+    const processor = new BatchSpanProcessor(exporter);
+    const originalOnExportSuccess = processor.onEnd.bind(processor);
+    const self = this;
+    const wrappedProcessor = Object.create(processor, {
+      onEnd: {
+        value(span: any) {
+          const result = originalOnExportSuccess(span);
+          if (!self._firstExportLogged && self.config.debug) {
+            self._firstExportLogged = true;
+            console.log(
+              "%c[Monoscope] ✓ First trace sent successfully",
+              "color: #22c55e; font-weight: bold",
+            );
+          }
+          return result;
+        },
+      },
+    });
     return new WebTracerProvider({
       resource: resourceFromAttributes({
         [ATTR_SERVICE_NAME]: serviceName,
         "at-project-id": projectId,
         ...resourceAttributes,
       }),
-      spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({
-        url: exporterEndpoint || "https://otelcol.apitoolkit.io/v1/traces",
-        headers: {},
-      }))],
+      spanProcessors: [wrappedProcessor],
     });
   }
 
