@@ -61,7 +61,7 @@ class Monoscope {
 
   private logInitBanner() {
     const c = this.config;
-    const endpoint = c.exporterEndpoint || "https://otelcol.apitoolkit.io/v1/traces";
+    const endpoint = c.exporterEndpoint || "https://otelcol.monoscope.tech/v1/traces";
     const samplePct = Math.round((c.sampleRate ?? 1) * 100);
     const replayPct = Math.round((c.replaySampleRate ?? 1) * 100);
     console.groupCollapsed(

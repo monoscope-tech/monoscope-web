@@ -39,7 +39,7 @@ export class OpenTelemetryManager {
   private createProvider(): WebTracerProvider {
     const { serviceName, resourceAttributes = {}, exporterEndpoint, projectId } = this.config;
     const exporter = new OTLPTraceExporter({
-      url: exporterEndpoint || "https://otelcol.apitoolkit.io/v1/traces",
+      url: exporterEndpoint || "https://otelcol.monoscope.tech/v1/traces",
       headers: {},
     });
     const processor = new BatchSpanProcessor(exporter);
