@@ -9,7 +9,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -26,3 +26,7 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: npm publish --provenance --access public
+      - name: Upload dist assets to GitHub release
+        run: gh release upload "${{ github.ref_name }}" dist/monoscope.min.js dist/monoscope.umd.js --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
