@@ -30,7 +30,7 @@ describe("MonoscopeProvider", () => {
       return <div data-testid="sid">{m?.getSessionId()}</div>;
     }
     render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <Child />
       </MonoscopeProvider>,
     );
@@ -55,7 +55,7 @@ describe("useMonoscopeUser", () => {
       return <div>ok</div>;
     }
     render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <Child />
       </MonoscopeProvider>,
     );
@@ -68,7 +68,7 @@ describe("useMonoscopeUser", () => {
       return <div>ok</div>;
     }
     render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <Child />
       </MonoscopeProvider>,
     );
@@ -79,7 +79,7 @@ describe("useMonoscopeUser", () => {
 describe("MonoscopeErrorBoundary", () => {
   it("renders children when no error", () => {
     render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <MonoscopeErrorBoundary fallback={<div>error</div>}>
           <div data-testid="child">hello</div>
         </MonoscopeErrorBoundary>
@@ -94,7 +94,7 @@ describe("MonoscopeErrorBoundary", () => {
       throw new Error("test boom");
     }
     render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <MonoscopeErrorBoundary fallback={<div data-testid="fb">caught</div>}>
           <Boom />
         </MonoscopeErrorBoundary>
@@ -114,7 +114,7 @@ describe("MonoscopeErrorBoundary", () => {
       throw new Error("fn boom");
     }
     render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <MonoscopeErrorBoundary fallback={(err) => <div data-testid="fb">{err.message}</div>}>
           <Boom />
         </MonoscopeErrorBoundary>
@@ -130,7 +130,7 @@ describe("MonoscopeErrorBoundary", () => {
       throw new Error("no fallback");
     }
     const { container } = render(
-      <MonoscopeProvider config={{ projectId: "test", serviceName: "test" }}>
+      <MonoscopeProvider config={{ apiKey: "test" }}>
         <MonoscopeErrorBoundary>
           <Boom />
         </MonoscopeErrorBoundary>

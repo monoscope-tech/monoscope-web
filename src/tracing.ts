@@ -20,6 +20,7 @@ export class OpenTelemetryManager {
   private sessionId: string;
   private tabId: string;
   private provider: WebTracerProvider;
+  private processor: BatchSpanProcessor | null = null;
   private longTaskObserver: PerformanceObserver | null = null;
   private resourceObserver: PerformanceObserver | null = null;
   private _enabled: boolean = true;
@@ -28,6 +29,7 @@ export class OpenTelemetryManager {
   private pageSpan: Span | null = null;
   private pageContext: ReturnType<typeof context.active> | null = null;
   private endPageSpanHandler: (() => void) | null = null;
+  onExportStatus: ((ok: boolean) => void) | null = null;
 
   constructor(config: MonoscopeConfig, sessionId: string, tabId: string) {
     this.config = config;
@@ -37,36 +39,56 @@ export class OpenTelemetryManager {
   }
 
   private createProvider(): WebTracerProvider {
-    const { serviceName, resourceAttributes = {}, exporterEndpoint, projectId } = this.config;
-    const exporter = new OTLPTraceExporter({
-      url: exporterEndpoint || "https://otelcol.monoscope.tech/v1/traces",
-      headers: {},
-    });
-    const processor = new BatchSpanProcessor(exporter);
-    const originalOnExportSuccess = processor.onEnd.bind(processor);
+    const { serviceName, resourceAttributes = {}, exporterEndpoint } = this.config;
+    const apiKey = this.config.apiKey || this.config.projectId || "";
     const self = this;
-    const wrappedProcessor = Object.create(processor, {
-      onEnd: {
-        value(span: any) {
-          const result = originalOnExportSuccess(span);
-          if (!self._firstExportLogged && self.config.debug) {
-            self._firstExportLogged = true;
-            console.log(
-              "%c[Monoscope] ✓ First trace sent successfully",
-              "color: #22c55e; font-weight: bold",
-            );
-          }
-          return result;
+
+    const realExporter = new OTLPTraceExporter({
+      url: exporterEndpoint || "https://otelcol.monoscope.tech/v1/traces",
+      headers: { "x-api-key": apiKey },
+    });
+
+    // Wrap exporter to capture export results for diagnostics
+    const wrappedExporter = Object.create(realExporter, {
+      export: {
+        value(spans: any, resultCallback: any) {
+          return realExporter.export(spans, (result: any) => {
+            if (!self._firstExportLogged) {
+              self._firstExportLogged = true;
+              const ok = result.code === 0;
+              if (self.config.debug) {
+                console.log(
+                  ok ? "%c[Monoscope] ✓ First trace sent successfully" : "%c[Monoscope] ✗ First trace export failed",
+                  ok ? "color: #22c55e; font-weight: bold" : "color: #ef4444; font-weight: bold",
+                  ok ? "" : result.error || "",
+                );
+                if (!ok) {
+                  const msg = String(result.error || "");
+                  if (msg.includes("401") || msg.includes("403")) {
+                    console.warn("[Monoscope] Authentication failed. Your apiKey may be invalid.");
+                  } else {
+                    console.warn("[Monoscope] Could not reach Monoscope endpoint. Check your apiKey and network.");
+                  }
+                }
+              }
+              self.onExportStatus?.(ok);
+            }
+            resultCallback(result);
+          });
         },
       },
     });
+
+    const processor = new BatchSpanProcessor(wrappedExporter);
+    this.processor = processor;
+
     return new WebTracerProvider({
       resource: resourceFromAttributes({
         [ATTR_SERVICE_NAME]: serviceName,
-        "at-project-id": projectId,
+        "x-api-key": apiKey,
         ...resourceAttributes,
       }),
-      spanProcessors: [wrappedProcessor],
+      spanProcessors: [processor],
     });
   }
 
@@ -253,6 +275,7 @@ export class OpenTelemetryManager {
     this.emitSpan(name, attributes);
   }
 
+  public async forceFlush(): Promise<void> { await this.processor?.forceFlush(); }
   public updateSessionId(sessionId: string) { this.sessionId = sessionId; }
   public setEnabled(enabled: boolean) { this._enabled = enabled; }
 

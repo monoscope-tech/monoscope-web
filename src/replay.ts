@@ -142,7 +142,8 @@ export class MonoscopeReplay {
     this.trimEvents();
     this.isSaving = true;
 
-    const baseUrl = `${this.config.replayEventsBaseUrl || "https://app.monoscope.tech"}/rrweb/${this.config.projectId}`;
+    const apiKey = this.config.apiKey || this.config.projectId || "";
+    const baseUrl = `${this.config.replayEventsBaseUrl || "https://app.monoscope.tech"}/api/v1/rrweb`;
 
     const eventsToSend = [...this.events];
     this.events = [];
@@ -156,6 +157,8 @@ export class MonoscopeReplay {
       user: Object.keys(this.userAttributes).length > 0 ? this.userAttributes : undefined,
     };
 
+    const headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` };
+
     try {
       if (forceSynchronous && typeof navigator !== "undefined" && navigator.sendBeacon) {
         const blob = new Blob([JSON.stringify(payload)], {
@@ -165,7 +168,7 @@ export class MonoscopeReplay {
         if (!sent) {
           fetch(baseUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify(payload),
             keepalive: true,
           }).catch(() => {});
@@ -174,15 +177,19 @@ export class MonoscopeReplay {
         const body = JSON.stringify(payload);
         const response = await fetch(baseUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body,
           keepalive: body.length < 63000,
         });
 
         if (!response.ok) {
-          throw new Error(
-            `Failed to save replay events: ${response.status} ${response.statusText}`,
-          );
+          const status = response.status;
+          if (status === 401 || status === 403) {
+            console.warn("[Monoscope] Replay upload authentication failed. Your apiKey may be invalid.");
+          } else {
+            console.warn(`[Monoscope] Replay upload failed (${status}). Check your apiKey and network.`);
+          }
+          throw new Error(`Failed to save replay events: ${status} ${response.statusText}`);
         }
         if (this.config.debug) {
           console.log(

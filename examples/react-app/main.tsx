@@ -8,8 +8,7 @@ import {
 } from "../../src/react";
 
 const config = {
-  projectId: "demo-project",
-  serviceName: "react-example",
+  apiKey: "demo-project",
   debug: true,
 };
 

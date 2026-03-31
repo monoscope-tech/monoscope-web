@@ -5,6 +5,7 @@ import { WebVitalsCollector } from "./web-vitals";
 import { SPARouter } from "./router";
 import { MonoscopeConfig, MonoscopeUser } from "./types";
 import { addBreadcrumb, clearBreadcrumbs } from "./breadcrumbs";
+import { DevOverlay } from "./overlay";
 import type { Span } from "@opentelemetry/api";
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -23,9 +24,15 @@ class Monoscope {
   private vitals: WebVitalsCollector;
   private router: SPARouter;
   private _enabled: boolean;
+  private overlay: DevOverlay | null = null;
 
   constructor(config: MonoscopeConfig) {
-    if (!config.projectId) throw new Error("MonoscopeConfig must include projectId");
+    const resolvedKey = config.apiKey || config.projectId;
+    if (!resolvedKey) throw new Error("MonoscopeConfig must include apiKey (or projectId)");
+    if (config.projectId && !config.apiKey && config.debug) {
+      console.warn("[Monoscope] `projectId` is deprecated. Use `apiKey` instead.");
+    }
+    config = { ...config, apiKey: resolvedKey, projectId: resolvedKey };
 
     const isLocalhost = isBrowser && (location.hostname === "localhost" || location.hostname === "127.0.0.1");
     if (config.debug === undefined && isLocalhost) config = { ...config, debug: true };
@@ -55,7 +62,13 @@ class Monoscope {
       this.router.start();
     }
 
-    if (this._enabled && this.config.debug) this.logInitBanner();
+    if (this._enabled && this.config.debug) {
+      this.logInitBanner();
+      if (isBrowser) {
+        this.overlay = new DevOverlay();
+        this.otel.onExportStatus = (ok) => this.overlay?.setConnectionStatus(ok);
+      }
+    }
     if (isBrowser) this.setupActivityTracking();
   }
 
@@ -68,7 +81,7 @@ class Monoscope {
       "%c[Monoscope] ✓ Initialized",
       "color: #22c55e; font-weight: bold",
     );
-    console.log(`  Project:   ${c.projectId}`);
+    console.log(`  API Key:   ${c.apiKey}`);
     console.log(`  Service:   ${c.serviceName}`);
     console.log(`  Session:   ${this.sessionId}`);
     console.log(`  Tracing:   ✓ (sample rate: ${samplePct}%)`);
@@ -172,11 +185,27 @@ class Monoscope {
   }
 
   startSpan<T>(name: string, fn: (span: Span) => T): T {
+    this.overlay?.incrementEvents();
     return this.otel.startSpan(name, fn);
   }
 
   recordEvent(name: string, attributes?: Record<string, string | number | boolean>) {
     this.otel.recordEvent(name, attributes);
+    this.overlay?.incrementEvents();
+  }
+
+  async test(): Promise<{ success: boolean; message: string }> {
+    try {
+      this.otel.emitSpan("monoscope.test", { "test.timestamp": Date.now() });
+      await this.otel.forceFlush();
+      const msg = "Test span sent successfully.";
+      if (this.config.debug) console.log(`[Monoscope] ${msg}`);
+      return { success: true, message: msg };
+    } catch (e) {
+      const msg = `Test failed: ${e}`;
+      if (this.config.debug) console.error(`[Monoscope] ${msg}`);
+      return { success: false, message: msg };
+    }
   }
 
   disable() {

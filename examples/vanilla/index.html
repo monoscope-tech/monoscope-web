@@ -36,8 +36,7 @@
     console.warn = (...args) => { origWarn(...args); appendLog("[warn] " + args.join(" ")); };
 
     const instance = new Monoscope({
-      projectId: "demo-project",
-      serviceName: "vanilla-example",
+      apiKey: "demo-project",
       debug: true,
     });
     window.instance = instance;

@@ -1,10 +1,12 @@
 import Monoscope from ".";
 
 export type MonoscopeConfig = {
+  apiKey?: string;
   serviceName?: string;
   exporterEndpoint?: string;
   propagateTraceHeaderCorsUrls?: RegExp[];
-  projectId: string;
+  /** @deprecated Use `apiKey` instead. */
+  projectId?: string;
   resourceAttributes?: Record<string, string>;
   instrumentations?: unknown[];
   replayEventsBaseUrl?: string;
