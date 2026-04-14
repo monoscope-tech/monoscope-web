@@ -17,7 +17,9 @@ export type MonoscopeConfig = {
   replaySampleRate?: number; // 0-1, applies to replay
   enabled?: boolean; // default true
   resourceTimingThresholdMs?: number; // min duration to report (default 200)
-  enableUserInteraction?: boolean; // trace user clicks/interactions (default false)
+  captureResourceTiming?: boolean; // emit a span per resource > threshold (default false — high volume, opt-in)
+  captureLongTasks?: boolean; // emit a span per long task > 50ms (default true)
+  enableUserInteraction?: boolean; // trace user clicks/submits (default true) — groups fetch/xhr under the originating interaction trace
 };
 
 export type MonoscopeUser = {

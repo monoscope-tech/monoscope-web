@@ -23,7 +23,15 @@ export class ErrorTracker {
   private createErrorSpan(spanName: string, errorType: string, attrs: Record<string, string | number>) {
     this.errorCount++;
     const crumbs = getBreadcrumbs();
-    this.emit(spanName, { "error.type": errorType, "error.count": this.errorCount, ...attrs }, (s) => {
+    const name = String(attrs["error.name"] || errorType);
+    const msg = String(attrs["error.message"] || "").replace(/\s+/g, " ").slice(0, 80);
+    this.emit(spanName, {
+      "error.type": errorType,
+      "error.count": this.errorCount,
+      "monoscope.kind": "error",
+      "monoscope.display.label": msg ? `${name} · ${msg}` : name,
+      ...attrs,
+    }, (s) => {
       s.setStatus({ code: SpanStatusCode.ERROR });
       if (crumbs.length > 0) s.setAttribute("breadcrumbs", safeStringify(crumbs));
     });

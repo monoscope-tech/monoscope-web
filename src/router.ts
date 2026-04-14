@@ -1,17 +1,17 @@
 import { addBreadcrumb } from "./breadcrumbs";
 
-type EmitFn = (name: string, attrs: Record<string, string | number>) => void;
+type NavFn = (from: string, to: string, method: string) => void;
 
 export class SPARouter {
-  private emit: EmitFn;
+  private onNavigation: NavFn;
   private currentUrl = "";
   private _active = false;
   private origPushState: typeof history.pushState | null = null;
   private origReplaceState: typeof history.replaceState | null = null;
   private popstateHandler: (() => void) | null = null;
 
-  constructor(emit: EmitFn) {
-    this.emit = emit;
+  constructor(onNavigation: NavFn) {
+    this.onNavigation = onNavigation;
   }
 
   start() {
@@ -29,12 +29,7 @@ export class SPARouter {
         if (from === to) return;
         this.currentUrl = to;
         addBreadcrumb({ type: "navigation", message: `${from} → ${to}`, data: { method } });
-        this.emit("navigation", {
-          "navigation.from": from,
-          "navigation.to": to,
-          "navigation.method": method,
-          "page.title": document.title,
-        });
+        this.onNavigation(from, to, method);
       } catch (e) {
         try { console.warn("Monoscope: error in navigation tracking", e); } catch { /* must never throw */ }
       }

@@ -1,5 +1,5 @@
 import { MonoscopeReplay } from "./replay";
-import { OpenTelemetryManager } from "./tracing";
+import { OpenTelemetryManager, newId } from "./tracing";
 import { ErrorTracker } from "./errors";
 import { WebVitalsCollector } from "./web-vitals";
 import { SPARouter } from "./router";
@@ -40,8 +40,8 @@ class Monoscope {
 
     this.config = config;
     this._enabled = config.enabled !== false;
-    this.tabId = crypto.randomUUID();
-    this.sessionId = isBrowser ? this.resolveSessionId() : crypto.randomUUID();
+    this.tabId = isBrowser ? this.resolveTabId() : newId();
+    this.sessionId = isBrowser ? this.resolveSessionId() : newId();
     this.lastActivityTime = Date.now();
     if (isBrowser) this.persistActivity();
 
@@ -50,7 +50,7 @@ class Monoscope {
     const emit = (...args: Parameters<OpenTelemetryManager["emitSpan"]>) => this.otel.emitSpan(...args);
     this.errors = new ErrorTracker(emit);
     this.vitals = new WebVitalsCollector(emit);
-    this.router = new SPARouter(emit);
+    this.router = new SPARouter((from, to, method) => this.otel.startRouteChange(from, to, method));
 
     if (this._enabled) {
       this.otel.configure();
@@ -67,6 +67,7 @@ class Monoscope {
       if (isBrowser) {
         this.overlay = new DevOverlay();
         this.otel.onExportStatus = (ok) => this.overlay?.setConnectionStatus(ok);
+        this.otel.onSpanStart = () => this.overlay?.incrementEvents();
       }
     }
     if (isBrowser) this.setupActivityTracking();
@@ -101,13 +102,25 @@ class Monoscope {
         if (elapsed < SESSION_TIMEOUT_MS) return storedId;
       }
 
-      const newId = crypto.randomUUID();
-      sessionStorage.setItem("monoscope-session-id", newId);
-      return newId;
+      const id = newId();
+      sessionStorage.setItem("monoscope-session-id", id);
+      return id;
     } catch (e) {
       if (this.config.debug) console.warn("Monoscope: sessionStorage unavailable, using ephemeral session", e);
-      return crypto.randomUUID();
+      return newId();
     }
+  }
+
+  // sessionStorage is tab-scoped, so a persisted id naturally identifies a
+  // single tab across MPA navigations and SPA reloads.
+  private resolveTabId(): string {
+    try {
+      const existing = sessionStorage.getItem("monoscope-tab-id");
+      if (existing) return existing;
+      const id = newId();
+      sessionStorage.setItem("monoscope-tab-id", id);
+      return id;
+    } catch { return newId(); }
   }
 
   private persistActivity() {
@@ -123,7 +136,7 @@ class Monoscope {
       if (this.config.debug) console.warn("Monoscope: failed to save replay on session rotation", e);
     });
     clearBreadcrumbs();
-    this.sessionId = crypto.randomUUID();
+    this.sessionId = newId();
     try { sessionStorage.setItem("monoscope-session-id", this.sessionId); } catch (e) {
       if (this.config.debug) console.warn("Monoscope: failed to persist session ID", e);
     }
@@ -185,13 +198,11 @@ class Monoscope {
   }
 
   startSpan<T>(name: string, fn: (span: Span) => T): T {
-    this.overlay?.incrementEvents();
     return this.otel.startSpan(name, fn);
   }
 
   recordEvent(name: string, attributes?: Record<string, string | number | boolean>) {
     this.otel.recordEvent(name, attributes);
-    this.overlay?.incrementEvents();
   }
 
   async test(): Promise<{ success: boolean; message: string }> {
