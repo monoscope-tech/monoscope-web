@@ -21,6 +21,9 @@ jobs:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
+      # Pin npm to a known-good 11.x (trusted publishing needs npm >= 11.5.1).
+      # Avoid `npm install -g npm@latest` — npm@12 alpha published a broken tarball.
+      - run: npm install -g npm@11.11.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
