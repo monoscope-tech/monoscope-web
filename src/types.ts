@@ -4,6 +4,8 @@ export type MonoscopeConfig = {
   apiKey?: string;
   serviceName?: string;
   exporterEndpoint?: string;
+  /** OTLP /v1/metrics endpoint for web-vital histograms. Defaults to the trace endpoint with /v1/traces → /v1/metrics. */
+  metricsExporterEndpoint?: string;
   propagateTraceHeaderCorsUrls?: RegExp[];
   /** @deprecated Use `apiKey` instead. */
   projectId?: string;

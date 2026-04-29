@@ -11,7 +11,9 @@ import { MonoscopeConfig, MonoscopeUser } from "./types";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { context, Span, SpanStatusCode, trace } from "@opentelemetry/api";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
+import { context, Histogram, Span, SpanStatusCode, trace } from "@opentelemetry/api";
 
 const MONOSCOPE_TRACER = "monoscope";
 const ROUTE_IDLE_MS = 3000;
@@ -79,6 +81,9 @@ export class OpenTelemetryManager {
   private pageviewId: string = "";
   private provider: WebTracerProvider;
   private processor: BatchSpanProcessor | null = null;
+  private meterProvider: MeterProvider | null = null;
+  private metricReader: PeriodicExportingMetricReader | null = null;
+  private vitalHistograms: Record<string, Histogram> = {};
   private longTaskObserver: PerformanceObserver | null = null;
   private resourceObserver: PerformanceObserver | null = null;
   private _enabled: boolean = true;
@@ -104,6 +109,77 @@ export class OpenTelemetryManager {
     this.sessionId = sessionId;
     this.tabId = tabId;
     this.provider = this.createProvider();
+    this.meterProvider = this.createMeterProvider();
+  }
+
+  /**
+   * Build the metrics pipeline used for browser web vitals (LCP/INP/FCP/TTFB
+   * are histograms in ms, CLS is dimensionless). Vitals are aggregate
+   * measurements, not units of work, so they belong on the metrics signal
+   * rather than as spans/events. Metric names use the in-progress browser
+   * semconv namespace `browser.web_vital.*`; if/when the spec stabilizes on
+   * different names this is a one-line rename.
+   */
+  private createMeterProvider(): MeterProvider {
+    const { serviceName, resourceAttributes = {}, exporterEndpoint, metricsExporterEndpoint } = this.config;
+    const apiKey = this.config.apiKey || this.config.projectId || "";
+    const url = metricsExporterEndpoint
+      || (exporterEndpoint
+            ? exporterEndpoint.replace(/\/v1\/traces\b/, "/v1/metrics")
+            : "https://otelcol.monoscope.tech/v1/metrics");
+
+    const exporter = new OTLPMetricExporter({
+      url,
+      headers: { "x-api-key": apiKey },
+    });
+    const reader = new PeriodicExportingMetricReader({
+      exporter,
+      // 30s default — plenty for vitals (typically 1-2 emissions per page).
+      // forceFlush() runs on pagehide so nothing is lost.
+      exportIntervalMillis: 30000,
+    });
+    this.metricReader = reader;
+
+    return new MeterProvider({
+      resource: resourceFromAttributes({
+        [ATTR_SERVICE_NAME]: serviceName,
+        "x-api-key": apiKey,
+        ...resourceAttributes,
+      }),
+      readers: [reader],
+    });
+  }
+
+  /**
+   * Record a Core Web Vital as an OTel histogram measurement. One histogram
+   * per vital (LCP/INP/FCP/TTFB in ms, CLS dimensionless) — separate metrics
+   * because OTel histograms have a single unit. Histograms are cached so we
+   * don't re-create on every observation.
+   */
+  public recordWebVital(
+    name: string,
+    value: number,
+    attrs: Record<string, string | number | boolean>,
+  ) {
+    if (!this._enabled || !this.meterProvider) return;
+    try {
+      const lower = name.toLowerCase();
+      let hist = this.vitalHistograms[lower];
+      if (!hist) {
+        const meter = this.meterProvider.getMeter(MONOSCOPE_TRACER);
+        hist = meter.createHistogram(`browser.web_vital.${lower}`, {
+          description: `Core Web Vital: ${name}`,
+          unit: lower === "cls" ? "1" : "ms",
+        });
+        this.vitalHistograms[lower] = hist;
+      }
+      hist.record(value, {
+        ...this.commonAttrs(),
+        ...attrs,
+      });
+    } catch (e) {
+      if (this.config.debug) console.warn("Monoscope: recordWebVital failed for", name, e);
+    }
   }
 
   private createProvider(): WebTracerProvider {
@@ -224,33 +300,6 @@ export class OpenTelemetryManager {
     catch (e) { if (this.config.debug) console.warn("Monoscope: endPageview failed", e); }
     this.pageviewSpan = null;
     this.pageviewContext = null;
-  }
-
-  /**
-   * Attach a marker (web-vital, long task, …) to the current pageview span as
-   * a span event rather than emitting a standalone span. Span events show up
-   * inside the parent span in trace viewers, so dozens of vitals/longtasks
-   * collapse under one pageview row instead of cluttering the top level.
-   *
-   * Falls back to emitSpan if no pageview span is open (e.g., the SDK is
-   * sampled out, or a vital fires after pagehide) so signal isn't lost.
-   */
-  public addPageviewEvent(
-    name: string,
-    attrs: Record<string, string | number | boolean>,
-    timeMs?: number,
-  ) {
-    if (!this._enabled) return;
-    try {
-      const span = this.pageviewSpan;
-      if (span) {
-        span.addEvent(name, attrs as any, timeMs);
-        return;
-      }
-      this.emitSpan(name, attrs);
-    } catch (e) {
-      if (this.config.debug) console.warn("Monoscope: addPageviewEvent failed for", name, e);
-    }
   }
 
   private commonAttrs(): Record<string, string> {
@@ -468,6 +517,7 @@ export class OpenTelemetryManager {
         // unhide), startPageview reopens a fresh pageview for the next trace.
         this.endPageview();
         this.processor?.forceFlush().catch(() => { /* best-effort */ });
+        this.metricReader?.forceFlush().catch(() => { /* best-effort */ });
       } catch (e) {
         if (this.config.debug) console.warn("Monoscope: flush on hide failed", e);
       }
@@ -522,10 +572,10 @@ export class OpenTelemetryManager {
             const attr = (entry as any).attribution;
             if (attr?.[0]?.containerSrc) attrs["longtask.script"] = attr[0].containerSrc;
             if (attr?.[0]?.containerName) attrs["longtask.container"] = attr[0].containerName;
-            // Long tasks are markers on the page timeline, not units of work —
-            // record as a span event on the pageview rather than an N-per-page
-            // span flood.
-            this.addPageviewEvent("longtask", attrs);
+            // Long tasks have a real duration, so emit as spans (children of
+            // the pageview via the getTracer reparent wrap). The trace
+            // timeline renders their duration natively.
+            this.emitSpan("longtask", attrs);
           } catch (e) {
             if (this.config.debug) console.warn("Monoscope: failed to process longtask entry", e);
           }
@@ -598,7 +648,12 @@ export class OpenTelemetryManager {
     this.emitSpan(name, attributes);
   }
 
-  public async forceFlush(): Promise<void> { await this.processor?.forceFlush(); }
+  public async forceFlush(): Promise<void> {
+    await Promise.all([
+      this.processor?.forceFlush(),
+      this.metricReader?.forceFlush(),
+    ]);
+  }
   public updateSessionId(sessionId: string) { this.sessionId = sessionId; }
   public setEnabled(enabled: boolean) { this._enabled = enabled; }
 
@@ -616,7 +671,10 @@ export class OpenTelemetryManager {
       this.visibilityHandler = null;
     }
     this._configured = false;
-    await this.provider.shutdown();
+    await Promise.all([
+      this.provider.shutdown(),
+      this.meterProvider?.shutdown(),
+    ]);
   }
 
   public setUser(newConfig: MonoscopeUser) {

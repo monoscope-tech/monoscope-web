@@ -49,10 +49,11 @@ class Monoscope {
     this.otel = new OpenTelemetryManager(config, this.sessionId, this.tabId);
     const emit = (...args: Parameters<OpenTelemetryManager["emitSpan"]>) => this.otel.emitSpan(...args);
     this.errors = new ErrorTracker(emit);
-    // Web vitals are page-level measurements — record as events on the
-    // pageview span so they collapse under it in the trace tree instead of
-    // cluttering the top level as one root span per metric.
-    this.vitals = new WebVitalsCollector((name, attrs) => this.otel.addPageviewEvent(name, attrs));
+    // Web vitals are aggregate browser measurements — emit on the OTel
+    // metrics signal (one histogram per vital), not as spans.
+    this.vitals = new WebVitalsCollector((name, value, attrs) =>
+      this.otel.recordWebVital(name, value, attrs),
+    );
     this.router = new SPARouter((from, to, method) => this.otel.startRouteChange(from, to, method));
 
     if (this._enabled) {

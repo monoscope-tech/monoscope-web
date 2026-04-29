@@ -1,14 +1,23 @@
 import type { Metric } from "web-vitals";
 
-type EmitFn = (name: string, attrs: Record<string, string | number>) => void;
+type RecordFn = (
+  name: string,
+  value: number,
+  attrs: Record<string, string | number | boolean>,
+) => void;
 
+/**
+ * Captures Core Web Vitals (LCP/INP/CLS/FCP/TTFB) and reports them via the
+ * OTel metrics pipeline. Vitals are aggregate measurements — they belong on
+ * the metrics signal, not as spans/events.
+ */
 export class WebVitalsCollector {
-  private emit: EmitFn;
+  private record: RecordFn;
   private _enabled = true;
   private _active = false;
 
-  constructor(emit: EmitFn) {
-    this.emit = emit;
+  constructor(record: RecordFn) {
+    this.record = record;
   }
 
   async start() {
@@ -18,17 +27,10 @@ export class WebVitalsCollector {
       const { onCLS, onINP, onLCP, onFCP, onTTFB } = await import("web-vitals");
       const report = (m: Metric) => {
         if (!this._enabled) return;
-        // CLS is unitless; the others are milliseconds.
-        const unit = m.name === "CLS" ? "" : "ms";
-        const value = m.name === "CLS" ? m.value.toFixed(3) : Math.round(m.value);
-        this.emit(`web-vital.${m.name}`, {
-          "vital.name": m.name,
-          "vital.value": m.value,
-          "vital.rating": m.rating,
-          "vital.id": m.id,
-          "vital.navigationType": m.navigationType,
-          "monoscope.kind": "web_vital",
-          "monoscope.display.label": `${m.name} · ${value}${unit} (${m.rating})`,
+        this.record(m.name, m.value, {
+          "web_vital.rating": m.rating,
+          "web_vital.id": m.id,
+          "web_vital.navigation_type": m.navigationType,
         });
       };
       [onCLS, onINP, onLCP, onFCP, onTTFB].forEach(fn => fn(report));
