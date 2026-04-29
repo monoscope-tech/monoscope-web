@@ -41,6 +41,21 @@ export function describeElement(el: EventTarget | Element | null | undefined): s
   return `${e.tagName.toLowerCase()}${id}${cls ? `.${cls}` : ""}`;
 }
 
+// Climb to the nearest "meaningful" interactive ancestor so a click on an inner
+// <span>/<svg>/<i> inside a button is attributed to the button itself, not the
+// inner node. Returns null if neither the target nor any ancestor is an
+// interactive element — callers can use that to skip span creation entirely.
+const INTERACTIVE_SELECTOR =
+  "button,a[href],input,select,textarea,summary,label," +
+  "[role=button],[role=link],[role=menuitem],[role=tab],[role=switch]," +
+  "[role=checkbox],[role=radio],[role=option],[data-monoscope-track]";
+
+export function closestInteractive(el: EventTarget | null | undefined): Element | null {
+  const e = el as Element | null;
+  if (!e || typeof (e as any).closest !== "function") return null;
+  return e.closest(INTERACTIVE_SELECTOR);
+}
+
 /**
  * RFC4122 v4 id with a fallback for non-secure contexts (HTTP / file:// /
  * older Safari/Edge) where `crypto.randomUUID` is undefined.
@@ -72,8 +87,15 @@ export class OpenTelemetryManager {
   private routeSpan: Span | null = null;
   private routeContext: ReturnType<typeof context.active> | null = null;
   private routeIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  // Long-lived parent span for the current pageview. Every auto-instrumented
+  // span (click, fetch, longtask, …) is reparented to this so the explorer's
+  // tree view shows one trace per page instead of thousands of orphan roots.
+  // MPA: ends on pagehide, recreated next load. SPA: rotates on route change.
+  private pageviewSpan: Span | null = null;
+  private pageviewContext: ReturnType<typeof context.active> | null = null;
   private flushOnHideHandler: (() => void) | null = null;
   private visibilityHandler: (() => void) | null = null;
+  private lastInteractionAt = new WeakMap<Element, number>();
   onExportStatus: ((ok: boolean) => void) | null = null;
   onSpanStart: (() => void) | null = null;
 
@@ -138,7 +160,7 @@ export class OpenTelemetryManager {
       forceFlush: () => Promise.resolve(),
     };
 
-    return new WebTracerProvider({
+    const provider = new WebTracerProvider({
       resource: resourceFromAttributes({
         [ATTR_SERVICE_NAME]: serviceName,
         "x-api-key": apiKey,
@@ -146,6 +168,62 @@ export class OpenTelemetryManager {
       }),
       spanProcessors: [processor, countingProcessor],
     });
+
+    // Reparent any parentless span to the current pageview span. Catches every
+    // tracer caller — auto-instrumentations (fetch/XHR/document-load/user-
+    // interaction), our own emitSpan, and consumer code — without each having
+    // to thread context manually. Spans that already have a parent (route
+    // change, manual startSpan, fetch-during-route) are left untouched.
+    const realGetTracer = provider.getTracer.bind(provider);
+    (provider as any).getTracer = (name: string, version?: string, opts?: any) => {
+      const tracer = realGetTracer(name, version, opts);
+      const realStart = tracer.startSpan.bind(tracer);
+      const realStartActive: any = tracer.startActiveSpan.bind(tracer);
+      const reparent = (ctx: any): any => {
+        const effective = ctx ?? context.active();
+        if (trace.getSpan(effective)) return effective;
+        return self.pageviewContext ?? effective;
+      };
+      tracer.startSpan = (n: string, o?: any, ctx?: any) => realStart(n, o, reparent(ctx));
+      tracer.startActiveSpan = (n: string, ...args: any[]) => {
+        // signatures: (name, fn) | (name, opts, fn) | (name, opts, ctx, fn)
+        let o: any, ctx: any, fn: any;
+        if (args.length === 1) [fn] = args;
+        else if (args.length === 2) [o, fn] = args;
+        else [o, ctx, fn] = args;
+        return realStartActive(n, o, reparent(ctx), fn);
+      };
+      return tracer;
+    };
+    return provider;
+  }
+
+  private startPageview() {
+    if (this.pageviewSpan) return;
+    try {
+      const tracer = trace.getTracer(MONOSCOPE_TRACER);
+      // Bypass the reparent wrapper for the pageview span itself — it is the
+      // root, must not parent to itself, and must not adopt any unrelated
+      // active context lingering at boot.
+      const span = tracer.startSpan("pageview", {
+        attributes: {
+          "monoscope.kind": "pageview",
+          "monoscope.display.label": `Pageview · ${shortPath(location.href)}`,
+        },
+      }, context.active());
+      this.applyCommonAttrs(span);
+      this.pageviewSpan = span;
+      this.pageviewContext = trace.setSpan(context.active(), span);
+    } catch (e) {
+      if (this.config.debug) console.warn("Monoscope: startPageview failed", e);
+    }
+  }
+
+  private endPageview() {
+    try { this.pageviewSpan?.end(); }
+    catch (e) { if (this.config.debug) console.warn("Monoscope: endPageview failed", e); }
+    this.pageviewSpan = null;
+    this.pageviewContext = null;
   }
 
   private commonAttrs(): Record<string, string> {
@@ -198,6 +276,10 @@ export class OpenTelemetryManager {
       propagator: new W3CTraceContextPropagator(),
     });
 
+    // Open the pageview parent before any instrumentation registers, so every
+    // span subsequently created inherits it as parent via the getTracer wrap.
+    this.startPageview();
+
     // Default to same-origin only to avoid leaking trace context to third parties
     const headerUrls = this.config.propagateTraceHeaderCorsUrls || [new RegExp(`^${location.origin}`)];
     const ignoreUrls = [
@@ -215,11 +297,31 @@ export class OpenTelemetryManager {
     // User interactions: default to click/submit only. Tracing every keydown/
     // mouseover would flood the backend; consumers can override via
     // instrumentations config to opt into more.
+    //
+    // Filter aggressively — UserInteractionInstrumentation otherwise creates a
+    // span for every dispatched event, including bubbles through non-
+    // interactive ancestors and clicks on text/SVG nodes inside buttons. We:
+    //   1. Climb to the closest interactive ancestor (button, a[href], input,
+    //      role=button, …); skip when there is none.
+    //   2. Dedupe rapid repeats on the same target within INTERACTION_DEDUPE_MS
+    //      so a single user click doesn't yield N spans from N bubbling
+    //      handlers.
+    const INTERACTION_DEDUPE_MS = 250;
     const userInteraction = this.config.enableUserInteraction !== false
       ? [new UserInteractionInstrumentation({
           eventNames: ["click", "submit"] as any,
           shouldPreventSpanCreation: (eventType, element, span) => {
-            stamp(span, "interaction", `${eventType} · ${describeElement(element)}`);
+            const target = closestInteractive(element) as Element | null;
+            if (!target) return true;
+            const now = performance.now();
+            const last = this.lastInteractionAt.get(target) ?? 0;
+            if (now - last < INTERACTION_DEDUPE_MS) return true;
+            this.lastInteractionAt.set(target, now);
+            stamp(span, "interaction", `${eventType} · ${describeElement(target)}`);
+            span.setAttribute("target.tag_name", target.tagName?.toLowerCase() || "");
+            if (target.id) span.setAttribute("target.id", target.id);
+            const role = target.getAttribute("role");
+            if (role) span.setAttribute("target.role", role);
             return false;
           },
         })]
@@ -283,7 +385,12 @@ export class OpenTelemetryManager {
   public startRouteChange(from: string, to: string, method: string) {
     try {
       this.endRouteChange();
+      // SPA: each route is its own trace. End the prior pageview span first,
+      // then rotate id and open a new pageview before route.change so the
+      // route span (and all subsequent activity) parents to the new pageview.
+      this.endPageview();
       this.rotatePageview();
+      this.startPageview();
       const tracer = trace.getTracer(MONOSCOPE_TRACER);
       const span = tracer.startSpan("route.change", {
         attributes: {
@@ -329,19 +436,32 @@ export class OpenTelemetryManager {
     const flush = () => {
       try {
         this.endRouteChange();
+        // MPA: closing the pageview span here lets it ship in the same
+        // forceFlush as its children. If we get re-shown (bfcache / tab
+        // unhide), startPageview reopens a fresh pageview for the next trace.
+        this.endPageview();
         this.processor?.forceFlush().catch(() => { /* best-effort */ });
       } catch (e) {
         if (this.config.debug) console.warn("Monoscope: flush on hide failed", e);
       }
     };
     this.flushOnHideHandler = flush;
-    this.visibilityHandler = () => { if (document.visibilityState === "hidden") flush(); };
+    this.visibilityHandler = () => {
+      if (document.visibilityState === "hidden") flush();
+      else if (this._enabled && !this.pageviewSpan) {
+        // Returning to a hidden tab — start a new pageview trace for the
+        // next user activity rather than orphaning it as roots.
+        this.rotatePageview();
+        this.startPageview();
+      }
+    };
     window.addEventListener("pagehide", this.flushOnHideHandler);
     document.addEventListener("visibilitychange", this.visibilityHandler);
   }
 
   private withActiveContext<T>(fn: () => T): T {
-    if (this.routeContext) return context.with(this.routeContext, fn);
+    const ctx = this.routeContext ?? this.pageviewContext;
+    if (ctx) return context.with(ctx, fn);
     return fn();
   }
 
@@ -456,6 +576,7 @@ export class OpenTelemetryManager {
     this.longTaskObserver?.disconnect();
     this.resourceObserver?.disconnect();
     this.endRouteChange();
+    this.endPageview();
     if (this.flushOnHideHandler) {
       window.removeEventListener("pagehide", this.flushOnHideHandler);
       this.flushOnHideHandler = null;
