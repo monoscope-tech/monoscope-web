@@ -226,6 +226,33 @@ export class OpenTelemetryManager {
     this.pageviewContext = null;
   }
 
+  /**
+   * Attach a marker (web-vital, long task, …) to the current pageview span as
+   * a span event rather than emitting a standalone span. Span events show up
+   * inside the parent span in trace viewers, so dozens of vitals/longtasks
+   * collapse under one pageview row instead of cluttering the top level.
+   *
+   * Falls back to emitSpan if no pageview span is open (e.g., the SDK is
+   * sampled out, or a vital fires after pagehide) so signal isn't lost.
+   */
+  public addPageviewEvent(
+    name: string,
+    attrs: Record<string, string | number | boolean>,
+    timeMs?: number,
+  ) {
+    if (!this._enabled) return;
+    try {
+      const span = this.pageviewSpan;
+      if (span) {
+        span.addEvent(name, attrs as any, timeMs);
+        return;
+      }
+      this.emitSpan(name, attrs);
+    } catch (e) {
+      if (this.config.debug) console.warn("Monoscope: addPageviewEvent failed for", name, e);
+    }
+  }
+
   private commonAttrs(): Record<string, string> {
     const attrs: Record<string, string> = {
       "session.id": this.sessionId,
@@ -495,7 +522,10 @@ export class OpenTelemetryManager {
             const attr = (entry as any).attribution;
             if (attr?.[0]?.containerSrc) attrs["longtask.script"] = attr[0].containerSrc;
             if (attr?.[0]?.containerName) attrs["longtask.container"] = attr[0].containerName;
-            this.emitSpan("longtask", attrs);
+            // Long tasks are markers on the page timeline, not units of work —
+            // record as a span event on the pageview rather than an N-per-page
+            // span flood.
+            this.addPageviewEvent("longtask", attrs);
           } catch (e) {
             if (this.config.debug) console.warn("Monoscope: failed to process longtask entry", e);
           }
