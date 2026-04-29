@@ -1,16 +1,15 @@
 import type { Metric } from "web-vitals";
 
+export type WebVitalName = "LCP" | "INP" | "CLS" | "FCP" | "TTFB";
+
 type RecordFn = (
-  name: string,
+  name: WebVitalName,
   value: number,
   attrs: Record<string, string | number | boolean>,
 ) => void;
 
-/**
- * Captures Core Web Vitals (LCP/INP/CLS/FCP/TTFB) and reports them via the
- * OTel metrics pipeline. Vitals are aggregate measurements — they belong on
- * the metrics signal, not as spans/events.
- */
+// Captures Core Web Vitals via the web-vitals library; reports through the
+// metrics pipeline.
 export class WebVitalsCollector {
   private record: RecordFn;
   private _enabled = true;
@@ -27,7 +26,7 @@ export class WebVitalsCollector {
       const { onCLS, onINP, onLCP, onFCP, onTTFB } = await import("web-vitals");
       const report = (m: Metric) => {
         if (!this._enabled) return;
-        this.record(m.name, m.value, {
+        this.record(m.name as WebVitalName, m.value, {
           "web_vital.rating": m.rating,
           "web_vital.id": m.id,
           "web_vital.navigation_type": m.navigationType,

@@ -60,9 +60,11 @@ class Monoscope {
       this.otel.configure();
       this.replay.configure();
       this.errors.start();
-      this.vitals.start().catch((e) => {
-        if (this.config.debug) console.warn("Monoscope: web-vitals init failed", e);
-      });
+      if (this.config.captureWebVitals !== false) {
+        this.vitals.start().catch((e) => {
+          if (this.config.debug) console.warn("Monoscope: web-vitals init failed", e);
+        });
+      }
       this.router.start();
     }
 

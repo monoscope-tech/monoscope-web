@@ -66,19 +66,23 @@ The `Monoscope` constructor accepts the following options:
 | `apiKey` | `string` | **Required** – Your Monoscope API key (found in project settings). |
 | `serviceName` | `string` | Service name. Defaults to `location.hostname`. |
 | `projectId` | `string` | Deprecated alias for `apiKey`. |
-| `exporterEndpoint` | `string` | Endpoint for exporting traces. Defaults to Monoscope's ingest endpoint. |
+| `exporterEndpoint` | `string` | Endpoint for exporting traces. Defaults to Monoscope's ingest endpoint (`/v1/traces`). |
+| `metricsExporterEndpoint` | `string` | Endpoint for exporting metrics (web vitals). Defaults to the trace endpoint with `/v1/traces` → `/v1/metrics`. |
 | `propagateTraceHeaderCorsUrls` | `RegExp[]` | URL patterns where trace context headers should be propagated. Defaults to same-origin only. |
 | `resourceAttributes` | `Record<string, string>` | Additional OpenTelemetry resource attributes. |
 | `instrumentations` | `unknown[]` | Additional OpenTelemetry instrumentations to register. |
 | `replayEventsBaseUrl` | `string` | Base URL for session replay events. Defaults to Monoscope's ingest endpoint. |
-| `enableNetworkEvents` | `boolean` | Include network timing events in document load spans. |
+| `enableNetworkEvents` | `boolean` | Include network timing events in document load spans. Default `false`. |
 | `user` | `MonoscopeUser` | Default user information for the session. |
-| `debug` | `boolean` | Enable debug logging to the console. |
+| `debug` | `boolean` | Enable debug logging to the console. Auto-enabled on `localhost`. |
 | `sampleRate` | `number` | Trace sampling rate from `0` to `1`. Default `1` (100%). |
 | `replaySampleRate` | `number` | Replay sampling rate from `0` to `1`. Default `1` (100%). |
 | `enabled` | `boolean` | Whether to start collecting data immediately. Default `true`. |
 | `resourceTimingThresholdMs` | `number` | Minimum resource duration (ms) to report. Default `200`. |
-| `enableUserInteraction` | `boolean` | Trace user clicks and interactions, linking them to downstream network calls. Default `false`. |
+| `captureResourceTiming` | `boolean` | Emit a span per resource over the threshold. Default `false` (high volume — opt-in). |
+| `captureLongTasks` | `boolean` | Emit a span per long task (>50ms blocked main thread). Default `true`. |
+| `captureWebVitals` | `boolean` | Capture Core Web Vitals (LCP/INP/CLS/FCP/TTFB) as OTel metrics. Default `true`. |
+| `enableUserInteraction` | `boolean` | Trace user clicks/submits, linking them to downstream network calls. Default `true`. |
 
 ---
 

@@ -22,6 +22,8 @@ export type MonoscopeConfig = {
   captureResourceTiming?: boolean; // emit a span per resource > threshold (default false — high volume, opt-in)
   captureLongTasks?: boolean; // emit a span per long task > 50ms (default true)
   enableUserInteraction?: boolean; // trace user clicks/submits (default true) — groups fetch/xhr under the originating interaction trace
+  /** Capture Core Web Vitals (LCP/INP/CLS/FCP/TTFB) via OTel metrics. Default true. */
+  captureWebVitals?: boolean;
 };
 
 export type MonoscopeUser = {

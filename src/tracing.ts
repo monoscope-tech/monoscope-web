@@ -17,6 +17,12 @@ import { context, Histogram, Span, SpanStatusCode, trace } from "@opentelemetry/
 
 const MONOSCOPE_TRACER = "monoscope";
 const ROUTE_IDLE_MS = 3000;
+// Cap how long a single pageview span lives before rotation. Without this, a
+// long-running SPA without route changes (or a browser that never fires
+// pagehide) leaves the parent span un-ended and BatchSpanProcessor never
+// ships it, even though children export fine.
+const PAGEVIEW_MAX_MS = 30 * 60 * 1000;
+import type { WebVitalName } from "./web-vitals";
 
 export type MonoscopeKind =
   | "page_load" | "navigation" | "interaction" | "network"
@@ -83,7 +89,8 @@ export class OpenTelemetryManager {
   private processor: BatchSpanProcessor | null = null;
   private meterProvider: MeterProvider | null = null;
   private metricReader: PeriodicExportingMetricReader | null = null;
-  private vitalHistograms: Record<string, Histogram> = {};
+  private vitalHistograms: Partial<Record<WebVitalName, Histogram>> = {};
+  private pageviewMaxTimer: ReturnType<typeof setTimeout> | null = null;
   private longTaskObserver: PerformanceObserver | null = null;
   private resourceObserver: PerformanceObserver | null = null;
   private _enabled: boolean = true;
@@ -92,10 +99,8 @@ export class OpenTelemetryManager {
   private routeSpan: Span | null = null;
   private routeContext: ReturnType<typeof context.active> | null = null;
   private routeIdleTimer: ReturnType<typeof setTimeout> | null = null;
-  // Long-lived parent span for the current pageview. Every auto-instrumented
-  // span (click, fetch, longtask, …) is reparented to this so the explorer's
-  // tree view shows one trace per page instead of thousands of orphan roots.
-  // MPA: ends on pagehide, recreated next load. SPA: rotates on route change.
+  // Long-lived parent span; every parentless auto-instrumented span is
+  // reparented to it. SPA: rotates on route change. MPA: ends on pagehide.
   private pageviewSpan: Span | null = null;
   private pageviewContext: ReturnType<typeof context.active> | null = null;
   private flushOnHideHandler: (() => void) | null = null;
@@ -109,35 +114,42 @@ export class OpenTelemetryManager {
     this.sessionId = sessionId;
     this.tabId = tabId;
     this.provider = this.createProvider();
-    this.meterProvider = this.createMeterProvider();
+    // Skip the metrics pipeline entirely when vitals are disabled — otherwise
+    // an OTLP exporter and 30s reader run for nothing. Wrap construction:
+    // failure must not bubble out of the SDK constructor into host code.
+    if (config.captureWebVitals !== false) {
+      try { this.meterProvider = this.createMeterProvider(); }
+      catch (e) {
+        if (config.debug) console.warn("Monoscope: meter provider init failed", e);
+        this.meterProvider = null;
+      }
+    }
   }
 
-  /**
-   * Build the metrics pipeline used for browser web vitals (LCP/INP/FCP/TTFB
-   * are histograms in ms, CLS is dimensionless). Vitals are aggregate
-   * measurements, not units of work, so they belong on the metrics signal
-   * rather than as spans/events. Metric names use the in-progress browser
-   * semconv namespace `browser.web_vital.*`; if/when the spec stabilizes on
-   * different names this is a one-line rename.
-   */
-  private createMeterProvider(): MeterProvider {
+  // Build the metrics pipeline for Core Web Vitals (LCP/INP/FCP/TTFB in ms,
+  // CLS dimensionless). Names use `browser.web_vital.*`.
+  protected createMeterProvider(): MeterProvider {
     const { serviceName, resourceAttributes = {}, exporterEndpoint, metricsExporterEndpoint } = this.config;
     const apiKey = this.config.apiKey || this.config.projectId || "";
-    const url = metricsExporterEndpoint
-      || (exporterEndpoint
-            ? exporterEndpoint.replace(/\/v1\/traces\b/, "/v1/metrics")
-            : "https://otelcol.monoscope.tech/v1/metrics");
+    let url: string;
+    if (metricsExporterEndpoint) url = metricsExporterEndpoint;
+    else if (exporterEndpoint) {
+      const replaced = exporterEndpoint.replace(/\/v1\/traces\b/, "/v1/metrics");
+      // Custom endpoint that doesn't match /v1/traces — caller must opt in
+      // explicitly via metricsExporterEndpoint, otherwise we'd POST metric
+      // payloads to a trace endpoint and fail silently.
+      if (replaced === exporterEndpoint) {
+        if (this.config.debug) console.warn(
+          "Monoscope: exporterEndpoint does not contain /v1/traces; set metricsExporterEndpoint explicitly",
+        );
+      }
+      url = replaced;
+    } else {
+      url = "https://otelcol.monoscope.tech/v1/metrics";
+    }
 
-    const exporter = new OTLPMetricExporter({
-      url,
-      headers: { "x-api-key": apiKey },
-    });
-    const reader = new PeriodicExportingMetricReader({
-      exporter,
-      // 30s default — plenty for vitals (typically 1-2 emissions per page).
-      // forceFlush() runs on pagehide so nothing is lost.
-      exportIntervalMillis: 30000,
-    });
+    const exporter = new OTLPMetricExporter({ url, headers: { "x-api-key": apiKey } });
+    const reader = new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 30000 });
     this.metricReader = reader;
 
     return new MeterProvider({
@@ -150,33 +162,24 @@ export class OpenTelemetryManager {
     });
   }
 
-  /**
-   * Record a Core Web Vital as an OTel histogram measurement. One histogram
-   * per vital (LCP/INP/FCP/TTFB in ms, CLS dimensionless) — separate metrics
-   * because OTel histograms have a single unit. Histograms are cached so we
-   * don't re-create on every observation.
-   */
+  // Cached histogram per vital; CLS is unit "1", others "ms".
   public recordWebVital(
-    name: string,
+    name: WebVitalName,
     value: number,
     attrs: Record<string, string | number | boolean>,
   ) {
     if (!this._enabled || !this.meterProvider) return;
     try {
-      const lower = name.toLowerCase();
-      let hist = this.vitalHistograms[lower];
+      let hist = this.vitalHistograms[name];
       if (!hist) {
         const meter = this.meterProvider.getMeter(MONOSCOPE_TRACER);
-        hist = meter.createHistogram(`browser.web_vital.${lower}`, {
+        hist = meter.createHistogram(`browser.web_vital.${name.toLowerCase()}`, {
           description: `Core Web Vital: ${name}`,
-          unit: lower === "cls" ? "1" : "ms",
+          unit: name === "CLS" ? "1" : "ms",
         });
-        this.vitalHistograms[lower] = hist;
+        this.vitalHistograms[name] = hist;
       }
-      hist.record(value, {
-        ...this.commonAttrs(),
-        ...attrs,
-      });
+      hist.record(value, { ...this.commonAttrs(), ...attrs });
     } catch (e) {
       if (this.config.debug) console.warn("Monoscope: recordWebVital failed for", name, e);
     }
@@ -245,14 +248,14 @@ export class OpenTelemetryManager {
       spanProcessors: [processor, countingProcessor],
     });
 
-    // Reparent any parentless span to the current pageview span. Catches every
-    // tracer caller — auto-instrumentations (fetch/XHR/document-load/user-
-    // interaction), our own emitSpan, and consumer code — without each having
-    // to thread context manually. Spans that already have a parent (route
-    // change, manual startSpan, fetch-during-route) are left untouched.
+    // Reparent parentless spans to the current pageview; spans with an
+    // existing parent are untouched. Tracers are cached by provider, so guard
+    // with a per-instance flag — re-wrapping would capture the already-wrapped
+    // function and recurse infinitely on the next getTracer() call.
     const realGetTracer = provider.getTracer.bind(provider);
     (provider as any).getTracer = (name: string, version?: string, opts?: any) => {
       const tracer = realGetTracer(name, version, opts);
+      if ((tracer as any).__monoscopeWrapped) return tracer;
       const realStart = tracer.startSpan.bind(tracer);
       const realStartActive: any = tracer.startActiveSpan.bind(tracer);
       const reparent = (ctx: any): any => {
@@ -262,13 +265,14 @@ export class OpenTelemetryManager {
       };
       tracer.startSpan = (n: string, o?: any, ctx?: any) => realStart(n, o, reparent(ctx));
       tracer.startActiveSpan = (n: string, ...args: any[]) => {
-        // signatures: (name, fn) | (name, opts, fn) | (name, opts, ctx, fn)
+        // (name, fn) | (name, opts, fn) | (name, opts, ctx, fn)
         let o: any, ctx: any, fn: any;
         if (args.length === 1) [fn] = args;
         else if (args.length === 2) [o, fn] = args;
         else [o, ctx, fn] = args;
         return realStartActive(n, o, reparent(ctx), fn);
       };
+      (tracer as any).__monoscopeWrapped = true;
       return tracer;
     };
     return provider;
@@ -278,9 +282,8 @@ export class OpenTelemetryManager {
     if (this.pageviewSpan) return;
     try {
       const tracer = trace.getTracer(MONOSCOPE_TRACER);
-      // Bypass the reparent wrapper for the pageview span itself — it is the
-      // root, must not parent to itself, and must not adopt any unrelated
-      // active context lingering at boot.
+      // pageview is the root — pass active context explicitly so the reparent
+      // wrap leaves it alone (no parent → no self-loop).
       const span = tracer.startSpan("pageview", {
         attributes: {
           "monoscope.kind": "pageview",
@@ -290,16 +293,32 @@ export class OpenTelemetryManager {
       this.applyCommonAttrs(span);
       this.pageviewSpan = span;
       this.pageviewContext = trace.setSpan(context.active(), span);
+      // Cap pageview duration so a long-lived SPA without route changes still
+      // ships its parent span — BatchSpanProcessor only exports after end().
+      this.pageviewMaxTimer = setTimeout(() => this.rollPageview(), PAGEVIEW_MAX_MS);
     } catch (e) {
       if (this.config.debug) console.warn("Monoscope: startPageview failed", e);
     }
   }
 
   private endPageview() {
+    if (this.pageviewMaxTimer) {
+      clearTimeout(this.pageviewMaxTimer);
+      this.pageviewMaxTimer = null;
+    }
     try { this.pageviewSpan?.end(); }
     catch (e) { if (this.config.debug) console.warn("Monoscope: endPageview failed", e); }
     this.pageviewSpan = null;
     this.pageviewContext = null;
+  }
+
+  // End the current pageview span and open a fresh one with a new pageview.id.
+  // Used by the max-age timer and on visibility return.
+  private rollPageview() {
+    if (!this._enabled) return;
+    this.endPageview();
+    this.rotatePageview();
+    this.startPageview();
   }
 
   private commonAttrs(): Record<string, string> {
@@ -370,18 +389,9 @@ export class OpenTelemetryManager {
       if (label) span.setAttribute("monoscope.display.label", label);
     };
 
-    // User interactions: default to click/submit only. Tracing every keydown/
-    // mouseover would flood the backend; consumers can override via
-    // instrumentations config to opt into more.
-    //
-    // Filter aggressively — UserInteractionInstrumentation otherwise creates a
-    // span for every dispatched event, including bubbles through non-
-    // interactive ancestors and clicks on text/SVG nodes inside buttons. We:
-    //   1. Climb to the closest interactive ancestor (button, a[href], input,
-    //      role=button, …); skip when there is none.
-    //   2. Dedupe rapid repeats on the same target within INTERACTION_DEDUPE_MS
-    //      so a single user click doesn't yield N spans from N bubbling
-    //      handlers.
+    // Default to click/submit only — every keydown/mouseover would flood the
+    // backend. Filter aggressively: UserInteractionInstrumentation otherwise
+    // creates one span per bubbled handler invocation.
     const INTERACTION_DEDUPE_MS = 250;
     const userInteraction = this.config.enableUserInteraction !== false
       ? [new UserInteractionInstrumentation({
@@ -461,12 +471,9 @@ export class OpenTelemetryManager {
   public startRouteChange(from: string, to: string, method: string) {
     try {
       this.endRouteChange();
-      // SPA: each route is its own trace. End the prior pageview span first,
-      // then rotate id and open a new pageview before route.change so the
-      // route span (and all subsequent activity) parents to the new pageview.
-      this.endPageview();
-      this.rotatePageview();
-      this.startPageview();
+      // SPA: each route is its own trace, so rotate the pageview parent
+      // before opening route.change.
+      this.rollPageview();
       const tracer = trace.getTracer(MONOSCOPE_TRACER);
       const span = tracer.startSpan("route.change", {
         attributes: {
@@ -509,15 +516,16 @@ export class OpenTelemetryManager {
    * bfcache eviction and mobile backgrounding; beforeunload does not).
    */
   private installFlushOnHide() {
+    const debugWarn = (label: string) => (e: unknown) => {
+      if (this.config.debug) console.warn(`Monoscope: ${label} failed`, e);
+    };
     const flush = () => {
       try {
         this.endRouteChange();
-        // MPA: closing the pageview span here lets it ship in the same
-        // forceFlush as its children. If we get re-shown (bfcache / tab
-        // unhide), startPageview reopens a fresh pageview for the next trace.
+        // End pageview so it flushes with its children.
         this.endPageview();
-        this.processor?.forceFlush().catch(() => { /* best-effort */ });
-        this.metricReader?.forceFlush().catch(() => { /* best-effort */ });
+        this.processor?.forceFlush().catch(debugWarn("trace flush"));
+        this.metricReader?.forceFlush().catch(debugWarn("metric flush"));
       } catch (e) {
         if (this.config.debug) console.warn("Monoscope: flush on hide failed", e);
       }
@@ -525,12 +533,9 @@ export class OpenTelemetryManager {
     this.flushOnHideHandler = flush;
     this.visibilityHandler = () => {
       if (document.visibilityState === "hidden") flush();
-      else if (this._enabled && !this.pageviewSpan) {
-        // Returning to a hidden tab — start a new pageview trace for the
-        // next user activity rather than orphaning it as roots.
-        this.rotatePageview();
-        this.startPageview();
-      }
+      // Returning to a previously-hidden tab: open a fresh pageview so the
+      // next user activity isn't orphaned.
+      else if (this._enabled && !this.pageviewSpan) this.rollPageview();
     };
     window.addEventListener("pagehide", this.flushOnHideHandler);
     document.addEventListener("visibilitychange", this.visibilityHandler);
@@ -572,9 +577,7 @@ export class OpenTelemetryManager {
             const attr = (entry as any).attribution;
             if (attr?.[0]?.containerSrc) attrs["longtask.script"] = attr[0].containerSrc;
             if (attr?.[0]?.containerName) attrs["longtask.container"] = attr[0].containerName;
-            // Long tasks have a real duration, so emit as spans (children of
-            // the pageview via the getTracer reparent wrap). The trace
-            // timeline renders their duration natively.
+            // Long tasks have real duration → spans, not events.
             this.emitSpan("longtask", attrs);
           } catch (e) {
             if (this.config.debug) console.warn("Monoscope: failed to process longtask entry", e);
@@ -671,10 +674,13 @@ export class OpenTelemetryManager {
       this.visibilityHandler = null;
     }
     this._configured = false;
-    await Promise.all([
+    // allSettled — a metric pipeline shutdown failure must not abort trace
+    // shutdown (and vice versa).
+    await Promise.allSettled([
       this.provider.shutdown(),
-      this.meterProvider?.shutdown(),
+      this.meterProvider?.shutdown() ?? Promise.resolve(),
     ]);
+    this.meterProvider = null;
   }
 
   public setUser(newConfig: MonoscopeUser) {

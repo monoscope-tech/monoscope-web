@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newId, shortPath, describeElement } from "../tracing";
+import { newId, shortPath, describeElement, closestInteractive } from "../tracing";
 import { SPARouter } from "../router";
 
 describe("newId", () => {
@@ -56,6 +56,99 @@ describe("describeElement", () => {
   it("handles null/undefined", () => {
     expect(describeElement(null)).toBe("?");
     expect(describeElement(undefined)).toBe("?");
+  });
+});
+
+describe("closestInteractive", () => {
+  it("returns the element itself when interactive", () => {
+    const btn = document.createElement("button");
+    expect(closestInteractive(btn)).toBe(btn);
+  });
+  it("climbs to the nearest interactive ancestor", () => {
+    const btn = document.createElement("button");
+    const span = document.createElement("span");
+    btn.appendChild(span);
+    document.body.appendChild(btn);
+    expect(closestInteractive(span)).toBe(btn);
+    btn.remove();
+  });
+  it("recognises role=button on a non-button tag", () => {
+    const div = document.createElement("div");
+    div.setAttribute("role", "button");
+    expect(closestInteractive(div)).toBe(div);
+  });
+  it("opts in via data-monoscope-track", () => {
+    const div = document.createElement("div");
+    div.setAttribute("data-monoscope-track", "");
+    expect(closestInteractive(div)).toBe(div);
+  });
+  it("returns null when no interactive ancestor exists", () => {
+    const span = document.createElement("span");
+    document.body.appendChild(span);
+    expect(closestInteractive(span)).toBeNull();
+    span.remove();
+  });
+  it("ignores <a> without href (not navigable)", () => {
+    const a = document.createElement("a");
+    expect(closestInteractive(a)).toBeNull();
+  });
+});
+
+describe("OpenTelemetryManager web vitals", () => {
+  beforeEach(() => sessionStorage.clear());
+
+  it("recordWebVital: caches one histogram per vital with correct unit", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager({ apiKey: "k" } as any, "s", "t");
+
+    // Mock the meter provider to spy on histogram creation/recording without
+    // booting a real exporter.
+    const histograms: { name: string; unit?: string; records: any[] }[] = [];
+    const fakeMeter = {
+      createHistogram: (name: string, opts: { unit?: string }) => {
+        const h = { name, unit: opts.unit, records: [] as any[] };
+        histograms.push(h);
+        return { record: (v: number, a: any) => h.records.push({ v, a }) } as any;
+      },
+    };
+    (m as any).meterProvider = { getMeter: () => fakeMeter };
+
+    m.recordWebVital("LCP", 1200, { "web_vital.rating": "good" });
+    m.recordWebVital("LCP", 1500, { "web_vital.rating": "good" });
+    m.recordWebVital("CLS", 0.1, { "web_vital.rating": "good" });
+
+    expect(histograms).toHaveLength(2);
+    expect(histograms.map(h => h.name).sort()).toEqual([
+      "browser.web_vital.cls",
+      "browser.web_vital.lcp",
+    ]);
+    const lcp = histograms.find(h => h.name === "browser.web_vital.lcp")!;
+    const cls = histograms.find(h => h.name === "browser.web_vital.cls")!;
+    expect(lcp.unit).toBe("ms");
+    expect(cls.unit).toBe("1");
+    expect(lcp.records).toHaveLength(2);
+    expect(cls.records).toHaveLength(1);
+    expect(lcp.records[0].v).toBe(1200);
+  });
+
+  it("constructor swallows MeterProvider init failure (never throws into host)", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Force createMeterProvider to throw by passing a config that the
+    // OTLPMetricExporter constructor will reject — easiest path: monkey-patch
+    // the prototype, but cleaner: stub via a subclass.
+    class Boom extends OpenTelemetryManager {
+      protected createMeterProvider(): any { throw new Error("kaboom"); }
+    }
+    expect(() => new Boom({ apiKey: "k", debug: true } as any, "s", "t")).not.toThrow();
+    spy.mockRestore();
+  });
+
+  it("captureWebVitals:false skips MeterProvider entirely", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager({ apiKey: "k", captureWebVitals: false } as any, "s", "t");
+    expect((m as any).meterProvider).toBeNull();
+    m.recordWebVital("LCP", 1, {}); // must be a no-op, not throw
   });
 });
 
