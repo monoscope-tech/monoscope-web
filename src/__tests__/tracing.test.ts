@@ -134,14 +134,52 @@ describe("OpenTelemetryManager web vitals", () => {
   it("constructor swallows MeterProvider init failure (never throws into host)", async () => {
     const { OpenTelemetryManager } = await import("../tracing");
     const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // Force createMeterProvider to throw by passing a config that the
-    // OTLPMetricExporter constructor will reject — easiest path: monkey-patch
-    // the prototype, but cleaner: stub via a subclass.
     class Boom extends OpenTelemetryManager {
       protected createMeterProvider(): any { throw new Error("kaboom"); }
     }
     expect(() => new Boom({ apiKey: "k", debug: true } as any, "s", "t")).not.toThrow();
     spy.mockRestore();
+  });
+
+  it("createMeterProvider returns null when exporterEndpoint has no /v1/traces", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const m = new OpenTelemetryManager(
+      { apiKey: "k", exporterEndpoint: "https://example.com/custom" } as any,
+      "s", "t",
+    );
+    expect((m as any).meterProvider).toBeNull();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe("OpenTelemetryManager getTracer wrap", () => {
+  beforeEach(() => sessionStorage.clear());
+
+  it("wraps each tracer at most once (no recursion on repeat getTracer calls)", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager({ apiKey: "k", sampleRate: 1 } as any, "s", "t");
+    m.configure();
+
+    const provider = (m as any).provider;
+    const t1 = provider.getTracer("monoscope");
+    const t2 = provider.getTracer("monoscope");
+    // Same cached tracer instance, not re-wrapped: startSpan is the wrapper
+    // installed on the first call, identical on the second.
+    expect(t1).toBe(t2);
+    expect(t1.startSpan).toBe(t2.startSpan);
+    expect((t1 as any).__monoscopeWrapped).toBe(true);
+
+    // Calling startSpan many times must not blow the stack — would happen if
+    // each getTracer re-wrapped the already-wrapped startSpan.
+    for (let i = 0; i < 50; i++) provider.getTracer("monoscope");
+    expect(() => {
+      const span = t1.startSpan("probe");
+      span.end();
+    }).not.toThrow();
+
+    return m.shutdown();
   });
 
   it("captureWebVitals:false skips MeterProvider entirely", async () => {

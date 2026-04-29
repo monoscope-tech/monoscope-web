@@ -1,6 +1,13 @@
 import type { Metric } from "web-vitals";
 
-export type WebVitalName = "LCP" | "INP" | "CLS" | "FCP" | "TTFB";
+// Single source of truth — `WebVitalName` is derived from this array so a
+// runtime guard and the compile-time type can never drift. If web-vitals adds
+// a new metric upstream, the guard rejects it until we add it here.
+export const WEB_VITAL_NAMES = ["LCP", "INP", "CLS", "FCP", "TTFB"] as const;
+export type WebVitalName = (typeof WEB_VITAL_NAMES)[number];
+
+const isWebVitalName = (s: string): s is WebVitalName =>
+  (WEB_VITAL_NAMES as readonly string[]).includes(s);
 
 type RecordFn = (
   name: WebVitalName,
@@ -26,7 +33,8 @@ export class WebVitalsCollector {
       const { onCLS, onINP, onLCP, onFCP, onTTFB } = await import("web-vitals");
       const report = (m: Metric) => {
         if (!this._enabled) return;
-        this.record(m.name as WebVitalName, m.value, {
+        if (!isWebVitalName(m.name)) return;
+        this.record(m.name, m.value, {
           "web_vital.rating": m.rating,
           "web_vital.id": m.id,
           "web_vital.navigation_type": m.navigationType,

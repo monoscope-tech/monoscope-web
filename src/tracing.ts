@@ -120,28 +120,33 @@ export class OpenTelemetryManager {
     if (config.captureWebVitals !== false) {
       try { this.meterProvider = this.createMeterProvider(); }
       catch (e) {
-        if (config.debug) console.warn("Monoscope: meter provider init failed", e);
+        // Init failures matter even without debug — without metrics, vitals
+        // are silently dropped. Match the missing-apiKey warn pattern.
+        console.warn("[Monoscope] Web-vital metrics disabled (init failed)", e);
         this.meterProvider = null;
       }
     }
   }
 
   // Build the metrics pipeline for Core Web Vitals (LCP/INP/FCP/TTFB in ms,
-  // CLS dimensionless). Names use `browser.web_vital.*`.
-  protected createMeterProvider(): MeterProvider {
+  // CLS dimensionless). Names use `browser.web_vital.*`. Returns null when no
+  // safe metrics URL can be derived; vitals are then silently disabled rather
+  // than POSTed to a trace-shaped endpoint.
+  protected createMeterProvider(): MeterProvider | null {
     const { serviceName, resourceAttributes = {}, exporterEndpoint, metricsExporterEndpoint } = this.config;
     const apiKey = this.config.apiKey || this.config.projectId || "";
     let url: string;
     if (metricsExporterEndpoint) url = metricsExporterEndpoint;
     else if (exporterEndpoint) {
       const replaced = exporterEndpoint.replace(/\/v1\/traces\b/, "/v1/metrics");
-      // Custom endpoint that doesn't match /v1/traces — caller must opt in
-      // explicitly via metricsExporterEndpoint, otherwise we'd POST metric
-      // payloads to a trace endpoint and fail silently.
       if (replaced === exporterEndpoint) {
-        if (this.config.debug) console.warn(
-          "Monoscope: exporterEndpoint does not contain /v1/traces; set metricsExporterEndpoint explicitly",
+        // Custom endpoint without /v1/traces — we'd POST metric payloads to a
+        // trace endpoint and 4xx forever. Refuse to construct; caller must
+        // pass metricsExporterEndpoint explicitly.
+        console.warn(
+          "[Monoscope] Web-vital metrics disabled: exporterEndpoint does not contain /v1/traces — set metricsExporterEndpoint to enable.",
         );
+        return null;
       }
       url = replaced;
     } else {
@@ -312,13 +317,15 @@ export class OpenTelemetryManager {
     this.pageviewContext = null;
   }
 
-  // End the current pageview span and open a fresh one with a new pageview.id.
-  // Used by the max-age timer and on visibility return.
   private rollPageview() {
     if (!this._enabled) return;
-    this.endPageview();
-    this.rotatePageview();
-    this.startPageview();
+    try {
+      this.endPageview();
+      this.rotatePageview();
+      this.startPageview();
+    } catch (e) {
+      if (this.config.debug) console.warn("Monoscope: rollPageview failed", e);
+    }
   }
 
   private commonAttrs(): Record<string, string> {
@@ -675,11 +682,16 @@ export class OpenTelemetryManager {
     }
     this._configured = false;
     // allSettled — a metric pipeline shutdown failure must not abort trace
-    // shutdown (and vice versa).
-    await Promise.allSettled([
+    // shutdown.
+    const results = await Promise.allSettled([
       this.provider.shutdown(),
       this.meterProvider?.shutdown() ?? Promise.resolve(),
     ]);
+    if (this.config.debug) {
+      for (const r of results) {
+        if (r.status === "rejected") console.warn("Monoscope: shutdown failed", r.reason);
+      }
+    }
     this.meterProvider = null;
   }
 
