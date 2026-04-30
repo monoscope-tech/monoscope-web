@@ -120,8 +120,6 @@ export class OpenTelemetryManager {
     if (config.captureWebVitals !== false) {
       try { this.meterProvider = this.createMeterProvider(); }
       catch (e) {
-        // Init failures matter even without debug — without metrics, vitals
-        // are silently dropped. Match the missing-apiKey warn pattern.
         console.warn("[Monoscope] Web-vital metrics disabled (init failed)", e);
         this.meterProvider = null;
       }
@@ -140,9 +138,7 @@ export class OpenTelemetryManager {
     else if (exporterEndpoint) {
       const replaced = exporterEndpoint.replace(/\/v1\/traces\b/, "/v1/metrics");
       if (replaced === exporterEndpoint) {
-        // Custom endpoint without /v1/traces — we'd POST metric payloads to a
-        // trace endpoint and 4xx forever. Refuse to construct; caller must
-        // pass metricsExporterEndpoint explicitly.
+        // Posting metric payloads to a trace endpoint would 4xx forever.
         console.warn(
           "[Monoscope] Web-vital metrics disabled: exporterEndpoint does not contain /v1/traces — set metricsExporterEndpoint to enable.",
         );
@@ -286,7 +282,7 @@ export class OpenTelemetryManager {
   private startPageview() {
     if (this.pageviewSpan) return;
     try {
-      const tracer = trace.getTracer(MONOSCOPE_TRACER);
+      const tracer = this.provider.getTracer(MONOSCOPE_TRACER);
       // pageview is the root — pass active context explicitly so the reparent
       // wrap leaves it alone (no parent → no self-loop).
       const span = tracer.startSpan("pageview", {
@@ -302,7 +298,7 @@ export class OpenTelemetryManager {
       // ships its parent span — BatchSpanProcessor only exports after end().
       this.pageviewMaxTimer = setTimeout(() => this.rollPageview(), PAGEVIEW_MAX_MS);
     } catch (e) {
-      if (this.config.debug) console.warn("Monoscope: startPageview failed", e);
+      console.warn("[Monoscope] startPageview failed — spans will be orphaned", e);
     }
   }
 
@@ -319,13 +315,9 @@ export class OpenTelemetryManager {
 
   private rollPageview() {
     if (!this._enabled) return;
-    try {
-      this.endPageview();
-      this.rotatePageview();
-      this.startPageview();
-    } catch (e) {
-      if (this.config.debug) console.warn("Monoscope: rollPageview failed", e);
-    }
+    this.endPageview();
+    this.rotatePageview();
+    this.startPageview();
   }
 
   private commonAttrs(): Record<string, string> {
@@ -481,7 +473,7 @@ export class OpenTelemetryManager {
       // SPA: each route is its own trace, so rotate the pageview parent
       // before opening route.change.
       this.rollPageview();
-      const tracer = trace.getTracer(MONOSCOPE_TRACER);
+      const tracer = this.provider.getTracer(MONOSCOPE_TRACER);
       const span = tracer.startSpan("route.change", {
         attributes: {
           "navigation.from": from,
@@ -511,7 +503,8 @@ export class OpenTelemetryManager {
       clearTimeout(this.routeIdleTimer);
       this.routeIdleTimer = null;
     }
-    this.routeSpan?.end();
+    try { this.routeSpan?.end(); }
+    catch (e) { if (this.config.debug) console.warn("Monoscope: endRouteChange failed", e); }
     this.routeSpan = null;
     this.routeContext = null;
   }
@@ -555,14 +548,22 @@ export class OpenTelemetryManager {
   }
 
   public emitSpan(name: string, attrs: Record<string, string | number | boolean>, configure?: (span: Span) => void) {
+    if (!this._enabled) return;
     try {
-      const tracer = trace.getTracer(MONOSCOPE_TRACER);
-      this.withActiveContext(() => tracer.startActiveSpan(name, (span: Span) => {
-        this.applyCommonAttrs(span);
-        for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
-        configure?.(span);
-        span.end();
-      }));
+      const tracer = this.provider.getTracer(MONOSCOPE_TRACER);
+      // Pass parentCtx explicitly — PerformanceObserver callbacks fire outside
+      // Zone.js-patched async paths, so context.active() inside reparent may
+      // return root context rather than the pageview context.
+      const parentCtx = this.routeContext ?? this.pageviewContext ?? context.active();
+      tracer.startActiveSpan(name, {}, parentCtx, (span: Span) => {
+        try {
+          this.applyCommonAttrs(span);
+          for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
+          configure?.(span);
+        } finally {
+          span.end();
+        }
+      });
     } catch (e) {
       if (this.config.debug) console.warn("Monoscope: span emit failed for", name, e);
     }
@@ -629,7 +630,7 @@ export class OpenTelemetryManager {
   }
 
   public startSpan<T>(name: string, fn: (span: Span) => T): T {
-    const tracer = trace.getTracer(MONOSCOPE_TRACER);
+    const tracer = this.provider.getTracer(MONOSCOPE_TRACER);
     return this.withActiveContext(() => tracer.startActiveSpan(name, (span: Span) => {
       this.applyCommonAttrs(span);
       try {
@@ -687,10 +688,8 @@ export class OpenTelemetryManager {
       this.provider.shutdown(),
       this.meterProvider?.shutdown() ?? Promise.resolve(),
     ]);
-    if (this.config.debug) {
-      for (const r of results) {
-        if (r.status === "rejected") console.warn("Monoscope: shutdown failed", r.reason);
-      }
+    for (const r of results) {
+      if (r.status === "rejected") console.warn("[Monoscope] shutdown error (some telemetry may not have been exported)", r.reason);
     }
     this.meterProvider = null;
   }

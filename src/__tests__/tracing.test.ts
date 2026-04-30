@@ -154,6 +154,66 @@ describe("OpenTelemetryManager web vitals", () => {
   });
 });
 
+describe("OpenTelemetryManager emitSpan parenting", () => {
+  beforeEach(() => sessionStorage.clear());
+
+  const makeManager = async (over: Record<string, unknown> = {}) => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager(
+      { apiKey: "k", sampleRate: 1, captureWebVitals: false, ...over } as any, "s", "t",
+    );
+    m.configure();
+    const exported: any[] = [];
+    const proc = (m as any).processor;
+    // Replace the OTLP exporter with a noop so m.shutdown() doesn't hit the network.
+    (proc as any)._exporter = { export: (_: any, cb: any) => cb({ code: 0 }), shutdown: () => Promise.resolve() };
+    const realOnEnd = proc.onEnd.bind(proc);
+    proc.onEnd = (span: any) => { exported.push(span); realOnEnd(span); };
+    return { m, exported };
+  };
+
+  it("emitSpan parents to pageview span", async () => {
+    const { m, exported } = await makeManager();
+    const { trace } = await import("@opentelemetry/api");
+    const pageviewSpanId = trace.getSpan((m as any).pageviewContext)?.spanContext().spanId;
+    expect(pageviewSpanId).toBeTruthy();
+
+    m.emitSpan("longtask", { "longtask.duration": 55 });
+
+    const lt = exported.find(s => s.name === "longtask");
+    expect(lt?.parentSpanContext?.spanId).toBe(pageviewSpanId);
+    return m.shutdown();
+  });
+
+  it("emitSpan parents to routeContext when a route change is active", async () => {
+    const { m, exported } = await makeManager();
+    const { trace } = await import("@opentelemetry/api");
+    m.startRouteChange("/a", "/b", "pushState");
+    const routeSpanId = trace.getSpan((m as any).routeContext)?.spanContext().spanId;
+    expect(routeSpanId).toBeTruthy();
+
+    m.emitSpan("longtask", { "longtask.duration": 40 });
+
+    const lt = exported.find(s => s.name === "longtask");
+    expect(lt?.parentSpanContext?.spanId).toBe(routeSpanId);
+    return m.shutdown();
+  });
+
+  it("emitSpan is a no-op when sampled out", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager({ apiKey: "k", sampleRate: 0, captureWebVitals: false } as any, "s", "t");
+    m.configure();
+    const exported: any[] = [];
+    const proc = (m as any).processor;
+    const realOnEnd = proc.onEnd.bind(proc);
+    proc.onEnd = (span: any) => { exported.push(span); realOnEnd(span); };
+
+    m.emitSpan("longtask", { "longtask.duration": 30 });
+    expect(exported.find(s => s.name === "longtask")).toBeUndefined();
+    return m.shutdown();
+  });
+});
+
 describe("OpenTelemetryManager getTracer wrap", () => {
   beforeEach(() => sessionStorage.clear());
 
