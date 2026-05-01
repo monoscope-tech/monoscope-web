@@ -547,7 +547,7 @@ export class OpenTelemetryManager {
     return fn();
   }
 
-  public emitSpan(name: string, attrs: Record<string, string | number | boolean>, configure?: (span: Span) => void) {
+  public emitSpan(name: string, attrs: Record<string, string | number | boolean>, configure?: (span: Span) => void, startTime?: number, endTime?: number) {
     if (!this._enabled) return;
     try {
       const tracer = this.provider.getTracer(MONOSCOPE_TRACER);
@@ -555,13 +555,13 @@ export class OpenTelemetryManager {
       // Zone.js-patched async paths, so context.active() inside reparent may
       // return root context rather than the pageview context.
       const parentCtx = this.routeContext ?? this.pageviewContext ?? context.active();
-      tracer.startActiveSpan(name, {}, parentCtx, (span: Span) => {
+      tracer.startActiveSpan(name, { startTime }, parentCtx, (span: Span) => {
         try {
           this.applyCommonAttrs(span);
           for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
           configure?.(span);
         } finally {
-          span.end();
+          span.end(endTime);
         }
       });
     } catch (e) {
@@ -586,7 +586,10 @@ export class OpenTelemetryManager {
             if (attr?.[0]?.containerSrc) attrs["longtask.script"] = attr[0].containerSrc;
             if (attr?.[0]?.containerName) attrs["longtask.container"] = attr[0].containerName;
             // Long tasks have real duration → spans, not events.
-            this.emitSpan("longtask", attrs);
+            // startTime/endTime from the PerformanceEntry so the span covers
+            // the actual wall-clock range instead of the near-zero emit time.
+            const t0 = performance.timeOrigin + entry.startTime;
+            this.emitSpan("longtask", attrs, undefined, t0, t0 + entry.duration);
           } catch (e) {
             if (this.config.debug) console.warn("Monoscope: failed to process longtask entry", e);
           }
