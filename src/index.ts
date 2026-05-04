@@ -48,7 +48,10 @@ class Monoscope {
     this.replay = new MonoscopeReplay(config, this.sessionId, this.tabId);
     this.otel = new OpenTelemetryManager(config, this.sessionId, this.tabId);
     const emit = (...args: Parameters<OpenTelemetryManager["emitSpan"]>) => this.otel.emitSpan(...args);
-    this.errors = new ErrorTracker(emit);
+    this.errors = new ErrorTracker(emit, {
+      captureExtensionErrors: config.captureExtensionErrors,
+      debug: config.debug,
+    });
     // Web vitals are aggregate browser measurements — emit on the OTel
     // metrics signal (one histogram per vital), not as spans.
     this.vitals = new WebVitalsCollector((name, value, attrs) =>

@@ -24,6 +24,8 @@ export type MonoscopeConfig = {
   enableUserInteraction?: boolean; // trace user clicks/submits (default true) — groups fetch/xhr under the originating interaction trace
   /** Capture Core Web Vitals (LCP/INP/CLS/FCP/TTFB) via OTel metrics. Default true. */
   captureWebVitals?: boolean;
+  /** Capture errors originating from browser extensions (chrome-extension://, moz-extension://, etc.). Default false — extensions are user-installed and routinely produce errors unrelated to the host site. */
+  captureExtensionErrors?: boolean;
 };
 
 export type MonoscopeUser = {
