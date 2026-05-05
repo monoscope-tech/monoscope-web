@@ -92,6 +92,7 @@ export class OpenTelemetryManager {
   private vitalHistograms: Partial<Record<WebVitalName, Histogram>> = {};
   private pageviewMaxTimer: ReturnType<typeof setTimeout> | null = null;
   private longTaskObserver: PerformanceObserver | null = null;
+  private loafObserver: PerformanceObserver | null = null;
   private resourceObserver: PerformanceObserver | null = null;
   private _enabled: boolean = true;
   private _configured: boolean = false;
@@ -449,7 +450,8 @@ export class OpenTelemetryManager {
       ],
     });
 
-    if (this.config.captureLongTasks !== false) this.observeLongTasks();
+    if (this.config.captureLongTasks === true) this.observeLongTasks();
+    if (this.config.captureLongAnimationFrames !== false) this.observeLongAnimationFrames();
     if (this.config.captureResourceTiming) this.observeResourceTiming();
     this.installFlushOnHide();
   }
@@ -576,15 +578,23 @@ export class OpenTelemetryManager {
         if (!this._enabled) return;
         for (const entry of list.getEntries()) {
           try {
+            const ms = Math.round(entry.duration);
             const attrs: Record<string, string | number> = {
               "longtask.duration": entry.duration,
               "longtask.name": entry.name,
               "monoscope.kind": "long_task",
-              "monoscope.display.label": `Long task · ${Math.round(entry.duration)}ms`,
             };
-            const attr = (entry as any).attribution;
-            if (attr?.[0]?.containerSrc) attrs["longtask.script"] = attr[0].containerSrc;
-            if (attr?.[0]?.containerName) attrs["longtask.container"] = attr[0].containerName;
+            // PerformanceLongTaskTiming attribution rarely identifies the actual
+            // script — it only exposes the container (window or which iframe).
+            // Surface what we can so the span isn't anonymous.
+            const attr = (entry as any).attribution?.[0];
+            if (attr?.containerType) attrs["longtask.container_type"] = attr.containerType;
+            if (attr?.containerSrc) attrs["longtask.script"] = attr.containerSrc;
+            if (attr?.containerName) attrs["longtask.container"] = attr.containerName;
+            if (attr?.containerId) attrs["longtask.container_id"] = attr.containerId;
+            const source = attr?.containerSrc || attr?.containerName || attr?.containerId;
+            const where = source ? shortPath(source) : (attr?.containerType || entry.name || "self");
+            attrs["monoscope.display.label"] = `Long task · ${where} · ${ms}ms`;
             // Long tasks have real duration → spans, not events.
             // startTime/endTime from the PerformanceEntry so the span covers
             // the actual wall-clock range instead of the near-zero emit time.
@@ -598,6 +608,68 @@ export class OpenTelemetryManager {
       this.longTaskObserver.observe({ type: "longtask", buffered: true });
     } catch (e) {
       console.warn("Monoscope: longtask observation not supported", e);
+    }
+  }
+
+  // PerformanceLongAnimationFrameTiming (Chrome 123+) — supersedes longtask
+  // by exposing per-script attribution: invoker, sourceURL, sourceFunctionName.
+  // This is what actually answers "what was the task?".
+  private observeLongAnimationFrames() {
+    if (typeof PerformanceObserver === "undefined") return;
+    const supported = (PerformanceObserver as any).supportedEntryTypes;
+    if (Array.isArray(supported) && !supported.includes("long-animation-frame")) return;
+    try {
+      this.loafObserver = new PerformanceObserver((list) => {
+        if (!this._enabled) return;
+        for (const entry of list.getEntries() as any[]) {
+          try {
+            const ms = Math.round(entry.duration);
+            const attrs: Record<string, string | number> = {
+              "loaf.duration": entry.duration,
+              "loaf.render_start": entry.renderStart || 0,
+              "loaf.style_and_layout_start": entry.styleAndLayoutStart || 0,
+              "loaf.blocking_duration": entry.blockingDuration || 0,
+              "monoscope.kind": "long_animation_frame",
+            };
+            const scripts: any[] = entry.scripts || [];
+            // Pick the heaviest script for the label/top-level attrs.
+            const top = scripts.reduce(
+              (a, b) => ((b?.duration || 0) > (a?.duration || 0) ? b : a),
+              scripts[0],
+            );
+            if (top) {
+              if (top.invoker) attrs["loaf.invoker"] = top.invoker;
+              if (top.invokerType) attrs["loaf.invoker_type"] = top.invokerType;
+              if (top.sourceURL) attrs["loaf.source_url"] = top.sourceURL;
+              if (top.sourceFunctionName) attrs["loaf.source_function"] = top.sourceFunctionName;
+              if (typeof top.sourceCharPosition === "number" && top.sourceCharPosition >= 0) {
+                attrs["loaf.source_char_position"] = top.sourceCharPosition;
+              }
+              if (typeof top.duration === "number") attrs["loaf.script_duration"] = top.duration;
+              if (typeof top.forcedStyleAndLayoutDuration === "number") {
+                attrs["loaf.forced_style_layout_duration"] = top.forcedStyleAndLayoutDuration;
+              }
+            }
+            attrs["loaf.script_count"] = scripts.length;
+            const fn = top?.sourceFunctionName;
+            const src = top?.sourceURL ? shortPath(top.sourceURL) : undefined;
+            const invoker = top?.invoker;
+            const label =
+              fn && src ? `${fn} @ ${src}` :
+              src ? src :
+              invoker ? invoker :
+              "anonymous";
+            attrs["monoscope.display.label"] = `LoAF · ${label} · ${ms}ms`;
+            const t0 = performance.timeOrigin + entry.startTime;
+            this.emitSpan("long-animation-frame", attrs, undefined, t0, t0 + entry.duration);
+          } catch (e) {
+            if (this.config.debug) console.warn("Monoscope: failed to process LoAF entry", e);
+          }
+        }
+      });
+      this.loafObserver.observe({ type: "long-animation-frame", buffered: true } as any);
+    } catch (e) {
+      if (this.config.debug) console.warn("Monoscope: long-animation-frame not supported", e);
     }
   }
 
@@ -673,6 +745,7 @@ export class OpenTelemetryManager {
 
   public async shutdown(): Promise<void> {
     this.longTaskObserver?.disconnect();
+    this.loafObserver?.disconnect();
     this.resourceObserver?.disconnect();
     this.endRouteChange();
     this.endPageview();

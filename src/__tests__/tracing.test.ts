@@ -214,6 +214,156 @@ describe("OpenTelemetryManager emitSpan parenting", () => {
   });
 });
 
+describe("OpenTelemetryManager longtask + LoAF observers", () => {
+  beforeEach(() => sessionStorage.clear());
+
+  // Captures every observer instance keyed by the entry type passed to .observe()
+  // so tests can drive the callback with synthetic PerformanceEntry-shaped objects.
+  const installFakePerformanceObserver = () => {
+    const byType = new Map<string, { trigger: (entries: any[]) => void }>();
+    class FakePO {
+      static supportedEntryTypes = ["longtask", "long-animation-frame"];
+      constructor(private cb: (list: { getEntries: () => any[] }) => void) {}
+      observe(opts: { type?: string; entryTypes?: string[] }) {
+        const types = opts.type ? [opts.type] : opts.entryTypes || [];
+        for (const t of types) {
+          byType.set(t, { trigger: (entries) => this.cb({ getEntries: () => entries }) });
+        }
+      }
+      disconnect() {}
+      takeRecords() { return []; }
+    }
+    const orig = (globalThis as any).PerformanceObserver;
+    (globalThis as any).PerformanceObserver = FakePO;
+    return {
+      restore: () => { (globalThis as any).PerformanceObserver = orig; },
+      trigger: (type: string, entries: any[]) => byType.get(type)?.trigger(entries),
+    };
+  };
+
+  const makeManagerWithExporter = async (over: Record<string, unknown> = {}) => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager(
+      { apiKey: "k", sampleRate: 1, captureWebVitals: false, ...over } as any, "s", "t",
+    );
+    m.configure();
+    const exported: any[] = [];
+    const proc = (m as any).processor;
+    (proc as any)._exporter = { export: (_: any, cb: any) => cb({ code: 0 }), shutdown: () => Promise.resolve() };
+    const realOnEnd = proc.onEnd.bind(proc);
+    proc.onEnd = (span: any) => { exported.push(span); realOnEnd(span); };
+    return { m, exported };
+  };
+
+  it("longtask span includes container-derived label and attribution attrs", async () => {
+    const fake = installFakePerformanceObserver();
+    try {
+      const { m, exported } = await makeManagerWithExporter({ captureLongTasks: true });
+      fake.trigger("longtask", [{
+        name: "self",
+        startTime: 100,
+        duration: 120,
+        attribution: [{
+          containerType: "iframe",
+          containerSrc: "https://cdn.example.com/vendor/widget.js?v=2",
+          containerName: "widget",
+          containerId: "w1",
+        }],
+      }]);
+      const lt = exported.find(s => s.name === "longtask");
+      expect(lt).toBeTruthy();
+      expect(lt.attributes["longtask.duration"]).toBe(120);
+      expect(lt.attributes["longtask.container_type"]).toBe("iframe");
+      expect(lt.attributes["longtask.script"]).toBe("https://cdn.example.com/vendor/widget.js?v=2");
+      expect(lt.attributes["longtask.container"]).toBe("widget");
+      expect(lt.attributes["longtask.container_id"]).toBe("w1");
+      expect(lt.attributes["monoscope.display.label"]).toMatch(/Long task · .*vendor.*· 120ms/);
+      return m.shutdown();
+    } finally { fake.restore(); }
+  });
+
+  it("longtask falls back to entry.name when no attribution is available", async () => {
+    const fake = installFakePerformanceObserver();
+    try {
+      const { m, exported } = await makeManagerWithExporter({ captureLongTasks: true });
+      fake.trigger("longtask", [{ name: "self", startTime: 0, duration: 80, attribution: [] }]);
+      const lt = exported.find(s => s.name === "longtask");
+      expect(lt.attributes["monoscope.display.label"]).toBe("Long task · self · 80ms");
+      return m.shutdown();
+    } finally { fake.restore(); }
+  });
+
+  it("LoAF span surfaces the heaviest script's attribution", async () => {
+    const fake = installFakePerformanceObserver();
+    try {
+      const { m, exported } = await makeManagerWithExporter();
+      fake.trigger("long-animation-frame", [{
+        startTime: 200,
+        duration: 180,
+        renderStart: 350,
+        styleAndLayoutStart: 360,
+        blockingDuration: 130,
+        scripts: [
+          { invoker: "IMG#hero.onload", invokerType: "event-listener", sourceURL: "https://app.example.com/static/a.js", sourceFunctionName: "tinyHandler", sourceCharPosition: 10, duration: 20, forcedStyleAndLayoutDuration: 0 },
+          { invoker: "BUTTON#save.onclick", invokerType: "event-listener", sourceURL: "https://app.example.com/static/main.js", sourceFunctionName: "handleSave", sourceCharPosition: 4321, duration: 150, forcedStyleAndLayoutDuration: 12 },
+        ],
+      }]);
+      const loaf = exported.find(s => s.name === "long-animation-frame");
+      expect(loaf).toBeTruthy();
+      expect(loaf.attributes["loaf.duration"]).toBe(180);
+      expect(loaf.attributes["loaf.blocking_duration"]).toBe(130);
+      expect(loaf.attributes["loaf.script_count"]).toBe(2);
+      expect(loaf.attributes["loaf.source_function"]).toBe("handleSave");
+      expect(loaf.attributes["loaf.source_url"]).toBe("https://app.example.com/static/main.js");
+      expect(loaf.attributes["loaf.source_char_position"]).toBe(4321);
+      expect(loaf.attributes["loaf.invoker"]).toBe("BUTTON#save.onclick");
+      expect(loaf.attributes["loaf.script_duration"]).toBe(150);
+      expect(loaf.attributes["loaf.forced_style_layout_duration"]).toBe(12);
+      expect(loaf.attributes["monoscope.display.label"]).toMatch(/^LoAF · handleSave @ .*main\.js.* · 180ms$/);
+      return m.shutdown();
+    } finally { fake.restore(); }
+  });
+
+  it("LoAF span labels anonymous frames when no scripts are attributed", async () => {
+    const fake = installFakePerformanceObserver();
+    try {
+      const { m, exported } = await makeManagerWithExporter();
+      fake.trigger("long-animation-frame", [{
+        startTime: 0, duration: 60, renderStart: 0, styleAndLayoutStart: 0, blockingDuration: 0, scripts: [],
+      }]);
+      const loaf = exported.find(s => s.name === "long-animation-frame");
+      expect(loaf.attributes["loaf.script_count"]).toBe(0);
+      expect(loaf.attributes["monoscope.display.label"]).toBe("LoAF · anonymous · 60ms");
+      return m.shutdown();
+    } finally { fake.restore(); }
+  });
+
+  it("LoAF observer is skipped when the entry type is unsupported", async () => {
+    const orig = (globalThis as any).PerformanceObserver;
+    class StubPO {
+      static supportedEntryTypes = ["longtask"]; // no LoAF
+      constructor(_cb: any) {}
+      observe() {}
+      disconnect() {}
+    }
+    (globalThis as any).PerformanceObserver = StubPO;
+    try {
+      const { m } = await makeManagerWithExporter();
+      expect((m as any).loafObserver).toBeNull();
+      return m.shutdown();
+    } finally { (globalThis as any).PerformanceObserver = orig; }
+  });
+
+  it("captureLongAnimationFrames=false disables the LoAF observer", async () => {
+    const fake = installFakePerformanceObserver();
+    try {
+      const { m } = await makeManagerWithExporter({ captureLongAnimationFrames: false });
+      expect((m as any).loafObserver).toBeNull();
+      return m.shutdown();
+    } finally { fake.restore(); }
+  });
+});
+
 describe("OpenTelemetryManager getTracer wrap", () => {
   beforeEach(() => sessionStorage.clear());
 

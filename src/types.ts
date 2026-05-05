@@ -20,7 +20,8 @@ export type MonoscopeConfig = {
   enabled?: boolean; // default true
   resourceTimingThresholdMs?: number; // min duration to report (default 200)
   captureResourceTiming?: boolean; // emit a span per resource > threshold (default false — high volume, opt-in)
-  captureLongTasks?: boolean; // emit a span per long task > 50ms (default true)
+  captureLongTasks?: boolean; // emit a span per long task > 50ms (default false — superseded by captureLongAnimationFrames, which has per-script attribution)
+  captureLongAnimationFrames?: boolean; // emit a span per long animation frame (LoAF) with per-script attribution. Chrome 123+. Default true.
   enableUserInteraction?: boolean; // trace user clicks/submits (default true) — groups fetch/xhr under the originating interaction trace
   /** Capture Core Web Vitals (LCP/INP/CLS/FCP/TTFB) via OTel metrics. Default true. */
   captureWebVitals?: boolean;

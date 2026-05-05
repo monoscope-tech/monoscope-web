@@ -80,7 +80,8 @@ The `Monoscope` constructor accepts the following options:
 | `enabled` | `boolean` | Whether to start collecting data immediately. Default `true`. |
 | `resourceTimingThresholdMs` | `number` | Minimum resource duration (ms) to report. Default `200`. |
 | `captureResourceTiming` | `boolean` | Emit a span per resource over the threshold. Default `false` (high volume — opt-in). |
-| `captureLongTasks` | `boolean` | Emit a span per long task (>50ms blocked main thread). Default `true`. |
+| `captureLongTasks` | `boolean` | Emit a span per long task (>50ms blocked main thread). Default `false` — superseded by `captureLongAnimationFrames`, which provides per-script attribution. |
+| `captureLongAnimationFrames` | `boolean` | Emit a span per long animation frame (LoAF) with per-script attribution (invoker, source URL, function name). Chrome 123+; no-op elsewhere. Default `true`. |
 | `captureWebVitals` | `boolean` | Capture Core Web Vitals (LCP/INP/CLS/FCP/TTFB) as OTel metrics. Default `true`. |
 | `enableUserInteraction` | `boolean` | Trace user clicks/submits, linking them to downstream network calls. Default `true`. |
 
