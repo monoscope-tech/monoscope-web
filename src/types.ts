@@ -14,6 +14,7 @@ export type MonoscopeConfig = {
   replayEventsBaseUrl?: string;
   enableNetworkEvents?: boolean;
   user?: MonoscopeUser;
+  tenant?: MonoscopeTenant;
   debug?: boolean;
   sampleRate?: number; // 0-1, applies to traces
   replaySampleRate?: number; // 0-1, applies to replay
@@ -35,6 +36,11 @@ export type MonoscopeUser = {
   name?: string;
   id?: string;
   roles?: string[];
+} & Record<string, string | string[] | undefined>;
+
+export type MonoscopeTenant = {
+  id?: string;
+  name?: string;
 } & Record<string, string | string[] | undefined>;
 
 declare global {

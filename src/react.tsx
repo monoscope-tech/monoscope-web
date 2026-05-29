@@ -3,7 +3,7 @@
 import { createContext, useContext, useRef, useEffect, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import Monoscope from ".";
-import type { MonoscopeConfig, MonoscopeUser } from "./types";
+import type { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types";
 
 const MonoscopeContext = createContext<Monoscope | null>(null);
 
@@ -42,6 +42,13 @@ export function useMonoscopeUser(user: MonoscopeUser | null | undefined) {
   useEffect(() => {
     if (instance && user) instance.setUser(user);
   }, [instance, user]);
+}
+
+export function useMonoscopeTenant(tenant: MonoscopeTenant | null | undefined) {
+  const instance = useMonoscope();
+  useEffect(() => {
+    if (instance && tenant) instance.setTenant(tenant);
+  }, [instance, tenant]);
 }
 
 type ErrorBoundaryProps = {

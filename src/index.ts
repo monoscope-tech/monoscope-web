@@ -3,7 +3,7 @@ import { OpenTelemetryManager, newId } from "./tracing";
 import { ErrorTracker } from "./errors";
 import { WebVitalsCollector } from "./web-vitals";
 import { SPARouter } from "./router";
-import { MonoscopeConfig, MonoscopeUser } from "./types";
+import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types";
 import { addBreadcrumb, clearBreadcrumbs } from "./breadcrumbs";
 import { DevOverlay } from "./overlay";
 import type { Span } from "@opentelemetry/api";
@@ -204,6 +204,16 @@ class Monoscope {
     }
     this.otel.setUser(u);
     this.replay.setUser(u);
+  }
+
+  setTenant(t: MonoscopeTenant) {
+    if (this.config.debug) {
+      const known = new Set(["id", "name"]);
+      const extra = Object.keys(t).filter(k => !known.has(k));
+      if (extra.length) console.warn(`Monoscope: unknown tenant attributes will be sent to collectors: ${extra.join(", ")}`);
+    }
+    this.otel.setTenant(t);
+    this.replay.setTenant(t);
   }
 
   startSpan<T>(name: string, fn: (span: Span) => T): T {

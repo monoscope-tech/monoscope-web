@@ -6,14 +6,14 @@ import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { XMLHttpRequestInstrumentation } from "@opentelemetry/instrumentation-xml-http-request";
 import { FetchInstrumentation } from "@opentelemetry/instrumentation-fetch";
 import { UserInteractionInstrumentation } from "@opentelemetry/instrumentation-user-interaction";
-import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import { MonoscopeConfig, MonoscopeUser } from "./types";
+import { CompositePropagator, W3CBaggagePropagator, W3CTraceContextPropagator } from "@opentelemetry/core";
+import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
-import { context, Histogram, Span, SpanStatusCode, trace } from "@opentelemetry/api";
+import { context, Histogram, propagation, Span, SpanStatusCode, trace } from "@opentelemetry/api";
 
 const MONOSCOPE_TRACER = "monoscope";
 const ROUTE_IDLE_MS = 3000;
@@ -294,7 +294,16 @@ export class OpenTelemetryManager {
       }, context.active());
       this.applyCommonAttrs(span);
       this.pageviewSpan = span;
-      this.pageviewContext = trace.setSpan(context.active(), span);
+      // Set the span AND seed W3C baggage on the pageview context so every
+      // child fetch/XHR injects session.id + tab.id on outbound requests.
+      const baggage = propagation.createBaggage({
+        "session.id": { value: this.sessionId },
+        "tab.id": { value: this.tabId },
+      });
+      this.pageviewContext = propagation.setBaggage(
+        trace.setSpan(context.active(), span),
+        baggage
+      );
       // Cap pageview duration so a long-lived SPA without route changes still
       // ships its parent span — BatchSpanProcessor only exports after end().
       this.pageviewMaxTimer = setTimeout(() => this.rollPageview(), PAGEVIEW_MAX_MS);
@@ -340,6 +349,11 @@ export class OpenTelemetryManager {
         if (v !== undefined) span.setAttribute(`user.${k}`, v as any);
       }
     }
+    if (this.config.tenant) {
+      for (const [k, v] of Object.entries(this.config.tenant)) {
+        if (v !== undefined) span.setAttribute(`tenant.${k}`, v as any);
+      }
+    }
   }
 
   public configure(): void {
@@ -368,7 +382,11 @@ export class OpenTelemetryManager {
 
     this.provider.register({
       contextManager: new ZoneContextManager(),
-      propagator: new W3CTraceContextPropagator(),
+      // Compose tracecontext + baggage so session.id / tab.id / pageview.id ride
+      // outbound fetch/XHR as W3C `baggage` and backend SDKs can tag their spans.
+      propagator: new CompositePropagator({
+        propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()],
+      }),
     });
 
     // Open the pageview parent before any instrumentation registers, so every
@@ -740,7 +758,18 @@ export class OpenTelemetryManager {
       this.metricReader?.forceFlush(),
     ]);
   }
-  public updateSessionId(sessionId: string) { this.sessionId = sessionId; }
+  public updateSessionId(sessionId: string) {
+    this.sessionId = sessionId;
+    // Refresh baggage on the active pageview context so subsequent fetches
+    // carry the rotated id, not the stale one.
+    if (this.pageviewSpan && this.pageviewContext) {
+      const baggage = propagation.createBaggage({
+        "session.id": { value: sessionId },
+        "tab.id": { value: this.tabId },
+      });
+      this.pageviewContext = propagation.setBaggage(this.pageviewContext, baggage);
+    }
+  }
   public setEnabled(enabled: boolean) { this._enabled = enabled; }
 
   public async shutdown(): Promise<void> {
@@ -772,5 +801,9 @@ export class OpenTelemetryManager {
 
   public setUser(newConfig: MonoscopeUser) {
     this.config = { ...this.config, user: { ...this.config.user, ...newConfig } };
+  }
+
+  public setTenant(newConfig: MonoscopeTenant) {
+    this.config = { ...this.config, tenant: { ...this.config.tenant, ...newConfig } };
   }
 }

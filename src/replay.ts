@@ -17,6 +17,7 @@ export class MonoscopeReplay {
   private isConfigured: boolean = false;
   private _enabled: boolean = true;
   private userAttributes: Record<string, string | string[] | undefined> = {};
+  private tenantAttributes: Record<string, string | string[] | undefined> = {};
 
   private _listenersAttached = false;
   private handleUnload = () => this.save(true);
@@ -155,6 +156,7 @@ export class MonoscopeReplay {
       timestamp: new Date().toISOString(),
       eventCount: eventsToSend.length,
       user: Object.keys(this.userAttributes).length > 0 ? this.userAttributes : undefined,
+      tenant: Object.keys(this.tenantAttributes).length > 0 ? this.tenantAttributes : undefined,
     };
 
     const headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` };
@@ -232,6 +234,10 @@ export class MonoscopeReplay {
 
   setUser(user: Record<string, string | string[] | undefined>) {
     this.userAttributes = { ...this.userAttributes, ...user };
+  }
+
+  setTenant(tenant: Record<string, string | string[] | undefined>) {
+    this.tenantAttributes = { ...this.tenantAttributes, ...tenant };
   }
 
   getEventCount(): number {
