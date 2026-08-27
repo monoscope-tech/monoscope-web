@@ -1,6 +1,6 @@
 {
   "name": "@monoscopetech/browser",
-  "version": "0.11.6",
+  "version": "0.12.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -19,11 +19,12 @@
     }
   },
   "scripts": {
-    "build": "npx tsc --build && rollup -c",
+    "build": "npx tsc --build && rollup -c && npm run verify-esm",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "lint": "eslint src --ext .ts",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "verify-esm": "node scripts/verify-esm.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",

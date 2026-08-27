@@ -1,11 +1,11 @@
-import { MonoscopeReplay } from "./replay";
-import { OpenTelemetryManager, newId } from "./tracing";
-import { ErrorTracker } from "./errors";
-import { WebVitalsCollector } from "./web-vitals";
-import { SPARouter } from "./router";
-import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types";
-import { addBreadcrumb, clearBreadcrumbs } from "./breadcrumbs";
-import { DevOverlay } from "./overlay";
+import { MonoscopeReplay } from "./replay.js";
+import { OpenTelemetryManager, newId } from "./tracing.js";
+import { ErrorTracker } from "./errors.js";
+import { WebVitalsCollector } from "./web-vitals.js";
+import { SPARouter } from "./router.js";
+import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types.js";
+import { addBreadcrumb, clearBreadcrumbs } from "./breadcrumbs.js";
+import { DevOverlay } from "./overlay.js";
 import type { Span } from "@opentelemetry/api";
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;

@@ -7,7 +7,7 @@ import { XMLHttpRequestInstrumentation } from "@opentelemetry/instrumentation-xm
 import { FetchInstrumentation } from "@opentelemetry/instrumentation-fetch";
 import { UserInteractionInstrumentation } from "@opentelemetry/instrumentation-user-interaction";
 import { CompositePropagator, W3CBaggagePropagator, W3CTraceContextPropagator } from "@opentelemetry/core";
-import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types";
+import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types.js";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
@@ -22,7 +22,7 @@ const ROUTE_IDLE_MS = 3000;
 // pagehide) leaves the parent span un-ended and BatchSpanProcessor never
 // ships it, even though children export fine.
 const PAGEVIEW_MAX_MS = 30 * 60 * 1000;
-import type { WebVitalName } from "./web-vitals";
+import type { WebVitalName } from "./web-vitals.js";
 
 export type MonoscopeKind =
   | "page_load" | "navigation" | "interaction" | "network"

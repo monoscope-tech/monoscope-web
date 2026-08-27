@@ -1,4 +1,4 @@
-import { addBreadcrumb } from "./breadcrumbs";
+import { addBreadcrumb } from "./breadcrumbs.js";
 
 type NavFn = (from: string, to: string, method: string) => void;
 

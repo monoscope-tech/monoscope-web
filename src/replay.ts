@@ -1,5 +1,5 @@
 import { getRecordConsolePlugin } from "@rrweb/rrweb-plugin-console-record";
-import { MonoscopeConfig } from "./types";
+import { MonoscopeConfig } from "./types.js";
 import * as rrweb from "rrweb";
 
 const MAX_EVENT_BATCH = 50;

@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useRef, useEffect, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import Monoscope from ".";
-import type { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types";
+import Monoscope from "./index.js";
+import type { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types.js";
 
 const MonoscopeContext = createContext<Monoscope | null>(null);
 

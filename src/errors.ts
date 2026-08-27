@@ -1,5 +1,5 @@
 import { Span, SpanStatusCode } from "@opentelemetry/api";
-import { addBreadcrumb, getBreadcrumbs } from "./breadcrumbs";
+import { addBreadcrumb, getBreadcrumbs } from "./breadcrumbs.js";
 
 function safeStringify(val: unknown): string {
   try { return JSON.stringify(val); } catch { return `[unserializable: ${typeof val}]`; }

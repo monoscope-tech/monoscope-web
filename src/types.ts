@@ -1,4 +1,4 @@
-import Monoscope from ".";
+import Monoscope from "./index.js";
 
 export type MonoscopeConfig = {
   apiKey?: string;
