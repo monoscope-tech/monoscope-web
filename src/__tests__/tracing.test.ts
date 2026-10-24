@@ -105,8 +105,8 @@ describe("OpenTelemetryManager web vitals", () => {
     // booting a real exporter.
     const histograms: { name: string; unit?: string; records: any[] }[] = [];
     const fakeMeter = {
-      createHistogram: (name: string, opts: { unit?: string }) => {
-        const h = { name, unit: opts.unit, records: [] as any[] };
+      createHistogram: (name: string, opts: { unit?: string; advice?: { explicitBucketBoundaries?: number[] } }) => {
+        const h = { name, unit: opts.unit, bounds: opts.advice?.explicitBucketBoundaries, records: [] as any[] };
         histograms.push(h);
         return { record: (v: number, a: any) => h.records.push({ v, a }) } as any;
       },
@@ -129,6 +129,18 @@ describe("OpenTelemetryManager web vitals", () => {
     expect(lcp.records).toHaveLength(2);
     expect(cls.records).toHaveLength(1);
     expect(lcp.records[0].v).toBe(1200);
+    // Thresholds are bucket edges (LCP 2.5 s / 4 s, CLS 0.1 / 0.25), so a P75 rates from its bucket alone.
+    expect(lcp.bounds).toEqual(expect.arrayContaining([2500, 4000]));
+    expect(cls.bounds).toEqual(expect.arrayContaining([0.1, 0.25]));
+    expect(cls.bounds!.every(b => b <= 1)).toBe(true);
+  });
+
+  it("exports metrics with DELTA temporality", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const m = new OpenTelemetryManager({ apiKey: "k" } as any, "s", "t");
+    const exporter = ((m as any).metricReader as any)._exporter;
+    const { AggregationTemporality, InstrumentType } = await import("@opentelemetry/sdk-metrics");
+    expect(exporter.selectAggregationTemporality(InstrumentType.HISTOGRAM)).toBe(AggregationTemporality.DELTA);
   });
 
   it("constructor swallows MeterProvider init failure (never throws into host)", async () => {

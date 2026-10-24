@@ -6,6 +6,17 @@ import type { Metric } from "web-vitals";
 export const WEB_VITAL_NAMES = ["LCP", "INP", "CLS", "FCP", "TTFB"] as const;
 export type WebVitalName = (typeof WEB_VITAL_NAMES)[number];
 
+// Histogram bucket edges per vital. Google's good/poor thresholds are edges, so a P75 is
+// rated from its bucket alone; OTel's defaults (0, 5, 10 … 10000) put every CLS score in
+// one bucket and straddle the LCP/FCP/TTFB thresholds.
+export const WEB_VITAL_BUCKETS: Record<WebVitalName, number[]> = {
+  LCP: [500, 1000, 1500, 2000, 2500, 3000, 4000, 6000, 10000, 20000],
+  INP: [50, 100, 200, 300, 400, 500, 1000, 2000],
+  CLS: [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.4, 0.6, 1],
+  FCP: [500, 1000, 1800, 2400, 3000, 4000, 6000, 10000],
+  TTFB: [100, 200, 400, 600, 800, 1200, 1800, 3000, 6000],
+};
+
 const isWebVitalName = (s: string): s is WebVitalName =>
   (WEB_VITAL_NAMES as readonly string[]).includes(s);
 
