@@ -11,7 +11,7 @@ import { MonoscopeConfig, MonoscopeUser, MonoscopeTenant } from "./types.js";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { AggregationTemporalityPreference, OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { MeterProvider, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { context, Histogram, propagation, Span, SpanStatusCode, trace } from "@opentelemetry/api";
 
@@ -22,7 +22,7 @@ const ROUTE_IDLE_MS = 3000;
 // pagehide) leaves the parent span un-ended and BatchSpanProcessor never
 // ships it, even though children export fine.
 const PAGEVIEW_MAX_MS = 30 * 60 * 1000;
-import type { WebVitalName } from "./web-vitals.js";
+import { WEB_VITAL_BUCKETS, type WebVitalName } from "./web-vitals.js";
 
 export type MonoscopeKind =
   | "page_load" | "navigation" | "interaction" | "network"
@@ -150,7 +150,9 @@ export class OpenTelemetryManager {
       url = "https://otelcol.monoscope.tech/v1/metrics";
     }
 
-    const exporter = new OTLPMetricExporter({ url, headers: { "x-api-key": apiKey } });
+    // DELTA: each export carries only its own observations, so the backend sums points
+    // instead of differencing cumulative series against a baseline.
+    const exporter = new OTLPMetricExporter({ url, headers: { "x-api-key": apiKey }, temporalityPreference: AggregationTemporalityPreference.DELTA });
     const reader = new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 30000 });
     this.metricReader = reader;
 
@@ -178,6 +180,7 @@ export class OpenTelemetryManager {
         hist = meter.createHistogram(`browser.web_vital.${name.toLowerCase()}`, {
           description: `Core Web Vital: ${name}`,
           unit: name === "CLS" ? "1" : "ms",
+          advice: { explicitBucketBoundaries: WEB_VITAL_BUCKETS[name] },
         });
         this.vitalHistograms[name] = hist;
       }
