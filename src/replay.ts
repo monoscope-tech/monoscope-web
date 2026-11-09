@@ -16,8 +16,8 @@ export class MonoscopeReplay {
   private isSaving: boolean = false;
   private isConfigured: boolean = false;
   private _enabled: boolean = true;
-  private userAttributes: Record<string, string | string[] | undefined> = {};
-  private tenantAttributes: Record<string, string | string[] | undefined> = {};
+  private userAttributes: Record<string, string | string[] | undefined>;
+  private tenantAttributes: Record<string, string | string[] | undefined>;
 
   private _listenersAttached = false;
   private handleUnload = () => this.save(true);
