@@ -2,8 +2,12 @@ import { Span, SpanStatusCode } from "@opentelemetry/api";
 import { addBreadcrumb, getBreadcrumbs } from "./breadcrumbs.js";
 
 function safeStringify(val: unknown): string {
-  try { return JSON.stringify(val); } catch { return `[unserializable: ${typeof val}]`; }
+  try { return JSON.stringify(val) ?? String(val); } catch { return `[unserializable: ${typeof val}]`; }
 }
+
+// A rejected or logged non-Error (`{error: "..."}`, a Response) otherwise reads "[object Object]".
+const describe = (v: any): string =>
+  typeof v === "string" ? v : typeof v?.message === "string" ? v.message : safeStringify(v);
 
 type EmitFn = (name: string, attrs: Record<string, string | number>, configure?: (span: Span) => void) => void;
 
@@ -101,7 +105,7 @@ export class ErrorTracker {
         attrs["error.name"] = reason.name;
         if (reason.stack) attrs["error.stack"] = reason.stack;
       } else {
-        attrs["error.message"] = String(reason);
+        attrs["error.message"] = describe(reason);
       }
       if (this.shouldDrop(attrs)) return;
       this.createErrorSpan("unhandled_rejection", "unhandled_rejection", attrs);
@@ -113,9 +117,7 @@ export class ErrorTracker {
       if (this._processing) return;
       this._processing = true;
       try {
-        const message = args.map((a) =>
-          a instanceof Error ? a.message : typeof a === "string" ? a : safeStringify(a),
-        ).join(" ");
+        const message = args.map(describe).join(" ");
         const attrs: Record<string, string | number> = { "error.message": message };
         const errorArg = args.find((a) => a instanceof Error);
         if (errorArg) {
