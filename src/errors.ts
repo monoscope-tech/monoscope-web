@@ -101,7 +101,8 @@ export class ErrorTracker {
         attrs["error.name"] = reason.name;
         if (reason.stack) attrs["error.stack"] = reason.stack;
       } else {
-        attrs["error.message"] = String(reason);
+        // A rejected non-Error (`{error: "..."}`, a Response) stringifies to "[object Object]".
+        attrs["error.message"] = typeof reason?.message === "string" ? reason.message : typeof reason === "string" ? reason : safeStringify(reason) ?? String(reason);
       }
       if (this.shouldDrop(attrs)) return;
       this.createErrorSpan("unhandled_rejection", "unhandled_rejection", attrs);

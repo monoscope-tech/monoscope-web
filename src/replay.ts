@@ -27,6 +27,8 @@ export class MonoscopeReplay {
     this.sessionId = sessionId;
     this.tabId = tabId;
     this.config = config;
+    this.userAttributes = { ...config.user };
+    this.tenantAttributes = { ...config.tenant };
     this.setupListeners();
   }
 
