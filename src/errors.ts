@@ -9,7 +9,15 @@ function safeStringify(val: unknown): string {
 const describe = (v: any): string =>
   typeof v === "string" ? v : typeof v?.message === "string" ? v.message : safeStringify(v);
 
-type EmitFn = (name: string, attrs: Record<string, string | number>, configure?: (span: Span) => void) => void;
+type EmitFn = (name: string, attrs: Record<string, string | number | boolean>, configure?: (span: Span) => void) => void;
+
+// A dropped connection, an aborted request or a ResizeObserver loop is not a bug, and the fetch/XHR
+// span already records the failure. Kept as a breadcrumb so the next real error carries it.
+const TRANSPORT_MESSAGES = /^(Failed to fetch|Load failed|NetworkError when attempting to fetch resource\.|The network connection was lost\.|The operation was aborted\.?|signal is aborted without reason)$/;
+export const isNoise = (e: unknown): boolean =>
+  (e as any)?.name === "AbortError" ||
+  (e instanceof TypeError && TRANSPORT_MESSAGES.test(e.message)) ||
+  (typeof e === "string" && e.startsWith("ResizeObserver loop"));
 
 const EXTENSION_URL_RE = /(?:chrome|moz|safari|safari-web|ms-browser)-extension:\/\//i;
 
@@ -52,7 +60,8 @@ export class ErrorTracker {
     return true;
   }
 
-  private createErrorSpan(spanName: string, errorType: string, attrs: Record<string, string | number>) {
+  // `exception.escaped` is OTel's handled/unhandled signal: a console.error is code that caught it.
+  private createErrorSpan(spanName: string, errorType: string, attrs: Record<string, string | number>, escaped: boolean) {
     this.errorCount++;
     const crumbs = getBreadcrumbs();
     const name = String(attrs["error.name"] || errorType);
@@ -62,6 +71,7 @@ export class ErrorTracker {
       "error.count": this.errorCount,
       "monoscope.kind": "error",
       "monoscope.display.label": msg ? `${name} · ${msg}` : name,
+      "exception.escaped": escaped,
       ...attrs,
     }, (s) => {
       s.setStatus({ code: SpanStatusCode.ERROR });
@@ -85,13 +95,13 @@ export class ErrorTracker {
       if (colno !== undefined) attrs["error.colno"] = colno;
       if (error?.stack) attrs["error.stack"] = error.stack;
       if (error?.name) attrs["error.name"] = error.name;
-      if (this.shouldDrop(attrs)) {
+      if (isNoise(error ?? event) || this.shouldDrop(attrs)) {
         if (typeof this.prevOnError === "function") {
           return this.prevOnError.call(window, event, source, lineno, colno, error);
         }
         return;
       }
-      this.createErrorSpan("exception", "uncaught_exception", attrs);
+      this.createErrorSpan("exception", "uncaught_exception", attrs, true);
       if (typeof this.prevOnError === "function") {
         return this.prevOnError.call(window, event, source, lineno, colno, error);
       }
@@ -99,6 +109,7 @@ export class ErrorTracker {
 
     this.onUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
+      if (isNoise(reason)) return addBreadcrumb({ type: "custom", message: describe(reason) });
       const attrs: Record<string, string | number> = {};
       if (reason instanceof Error) {
         attrs["error.message"] = reason.message;
@@ -108,7 +119,7 @@ export class ErrorTracker {
         attrs["error.message"] = describe(reason);
       }
       if (this.shouldDrop(attrs)) return;
-      this.createErrorSpan("unhandled_rejection", "unhandled_rejection", attrs);
+      this.createErrorSpan("unhandled_rejection", "unhandled_rejection", attrs, true);
     };
 
     this.origConsoleError = console.error;
@@ -126,7 +137,7 @@ export class ErrorTracker {
         }
         if (this.shouldDrop(attrs)) return;
         addBreadcrumb({ type: "console.error", message });
-        this.createErrorSpan("console.error", "console_error", attrs);
+        if (!args.some(isNoise)) this.createErrorSpan("console.error", "console_error", attrs, false);
       } finally {
         this._processing = false;
       }
