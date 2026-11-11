@@ -133,7 +133,7 @@ export class OpenTelemetryManager {
   // safe metrics URL can be derived; vitals are then silently disabled rather
   // than POSTed to a trace-shaped endpoint.
   protected createMeterProvider(): MeterProvider | null {
-    const { serviceName, resourceAttributes = {}, exporterEndpoint, metricsExporterEndpoint } = this.config;
+    const { exporterEndpoint, metricsExporterEndpoint } = this.config;
     const apiKey = this.config.apiKey || this.config.projectId || "";
     let url: string;
     if (metricsExporterEndpoint) url = metricsExporterEndpoint;
@@ -158,11 +158,7 @@ export class OpenTelemetryManager {
     this.metricReader = reader;
 
     return new MeterProvider({
-      resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: serviceName,
-        "x-api-key": apiKey,
-        ...resourceAttributes,
-      }),
+      resource: this.resource(apiKey),
       readers: [reader],
     });
   }
@@ -191,8 +187,19 @@ export class OpenTelemetryManager {
     }
   }
 
+  // Automated browsers (Playwright, Selenium) set navigator.webdriver; OTel's
+  // user_agent.synthetic.type lets the backend keep their errors apart.
+  private resource(apiKey: string) {
+    return resourceFromAttributes({
+      [ATTR_SERVICE_NAME]: this.config.serviceName,
+      "x-api-key": apiKey,
+      ...(typeof navigator !== "undefined" && navigator.webdriver ? { "user_agent.synthetic.type": "test" } : {}),
+      ...this.config.resourceAttributes,
+    });
+  }
+
   private createProvider(): WebTracerProvider {
-    const { serviceName, resourceAttributes = {}, exporterEndpoint } = this.config;
+    const { exporterEndpoint } = this.config;
     const apiKey = this.config.apiKey || this.config.projectId || "";
     const self = this;
 
@@ -246,11 +253,7 @@ export class OpenTelemetryManager {
     };
 
     const provider = new WebTracerProvider({
-      resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: serviceName,
-        "x-api-key": apiKey,
-        ...resourceAttributes,
-      }),
+      resource: this.resource(apiKey),
       spanProcessors: [processor, countingProcessor],
     });
 

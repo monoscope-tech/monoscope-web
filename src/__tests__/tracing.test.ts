@@ -404,6 +404,16 @@ describe("OpenTelemetryManager getTracer wrap", () => {
     return m.shutdown();
   });
 
+  it("marks automated browsers as synthetic traffic", async () => {
+    const { OpenTelemetryManager } = await import("../tracing");
+    const synthetic = (webdriver: boolean) => {
+      Object.defineProperty(navigator, "webdriver", { value: webdriver, configurable: true });
+      return (new OpenTelemetryManager({ apiKey: "k" } as any, "s", "t") as any).resource("k").attributes["user_agent.synthetic.type"];
+    };
+    expect([synthetic(true), synthetic(false)]).toEqual(["test", undefined]);
+    delete (navigator as any).webdriver;
+  });
+
   it("captureWebVitals:false skips MeterProvider entirely", async () => {
     const { OpenTelemetryManager } = await import("../tracing");
     const m = new OpenTelemetryManager({ apiKey: "k", captureWebVitals: false } as any, "s", "t");
