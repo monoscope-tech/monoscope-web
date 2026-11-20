@@ -66,7 +66,7 @@ The `Monoscope` constructor accepts the following options:
 | `apiKey` | `string` | **Required** – Your Monoscope API key (found in project settings). |
 | `serviceName` | `string` | Service name. Defaults to `location.hostname`. |
 | `projectId` | `string` | Deprecated alias for `apiKey`. |
-| `exporterEndpoint` | `string` | Endpoint for exporting traces. Defaults to Monoscope's ingest endpoint (`/v1/traces`). |
+| `exporterEndpoint` | `string` | Endpoint for exporting traces. Defaults to `https://otel.monoscope.tech/v1/traces`. If your site sets a Content-Security-Policy, allow `https://otel.monoscope.tech` in `connect-src`. |
 | `metricsExporterEndpoint` | `string` | Endpoint for exporting metrics (web vitals). Defaults to the trace endpoint with `/v1/traces` → `/v1/metrics`. |
 | `propagateTraceHeaderCorsUrls` | `RegExp[]` | URL patterns where trace context headers should be propagated. Defaults to same-origin only. |
 | `resourceAttributes` | `Record<string, string>` | Additional OpenTelemetry resource attributes. |
