@@ -148,7 +148,7 @@ export class OpenTelemetryManager {
       }
       url = replaced;
     } else {
-      url = "https://otelcol.monoscope.tech/v1/metrics";
+      url = "https://otel.monoscopehq.com/v1/metrics";
     }
 
     // DELTA: each export carries only its own observations, so the backend sums points
@@ -204,7 +204,7 @@ export class OpenTelemetryManager {
     const self = this;
 
     const realExporter = new OTLPTraceExporter({
-      url: exporterEndpoint || "https://otelcol.monoscope.tech/v1/traces",
+      url: exporterEndpoint || "https://otel.monoscopehq.com/v1/traces",
       headers: { "x-api-key": apiKey },
     });
 
